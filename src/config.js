@@ -40,6 +40,7 @@ export function loadConfig(environment = process.env) {
       GH_TOKEN: env.GITHUB_TOKEN_SECRET,
     },
     stateDir: path.resolve(env.FACTORY_STATE_DIR),
+    memoryDir: path.resolve(env.FACTORY_STATE_DIR, "memory"),
     workspaceDir: path.resolve(env.FACTORY_WORKSPACE_DIR),
     registryPath: path.resolve(env.FACTORY_REGISTRY),
     workerImage: env.FACTORY_WORKER_IMAGE,

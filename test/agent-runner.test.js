@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { AzureAgentRunner } from "../src/agent-runner.js";
@@ -30,6 +30,23 @@ test("routes each role to the correct Azure endpoint without OpenCode", async ()
   assert.equal(created[1].baseUrl, "https://primary.test/openai/v1");
   assert.equal(created[1].model, "gpt-5.6-sol");
   assert.ok(created.every((entry) => entry.tools.read_file && entry.tools.run_command));
+});
+
+test("planner always receives goal and autonomous-loop skills", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-planner-"));
+  const skill = path.join(directory, "goal.md");
+  await writeFile(skill, "GOAL_RUBRIC_REQUIRED");
+  let prompt;
+  const runner = new AzureAgentRunner({ timeoutMs: 60_000 }, {
+    defaults: { planner: ["goal-management"] },
+    skills: { "goal-management": { version: "1.0.0", path: skill, roles: ["planner"] } },
+    mcp: {},
+  }, {
+    environment: { TEXTVED_AZURE_BASE_URL: "https://primary.test/openai/v1", TEXTVED_AZURE_API_KEY: "key" },
+    createHarness: () => ({ run: async (value) => { prompt = value; return { text: '{"tasks":[]}' }; } }),
+  });
+  await runner.plan({ id: "objective1", objective: "/goal ship safely" }, directory);
+  assert.match(prompt, /GOAL_RUBRIC_REQUIRED/);
 });
 
 test("fails closed when role credentials are unavailable", async () => {

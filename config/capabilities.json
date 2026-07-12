@@ -1,7 +1,7 @@
 {
   "defaults": {
     "scout": ["code-search", "token-efficiency", "context7"],
-    "planner": ["token-efficiency"],
+    "planner": ["token-efficiency", "goal-management", "autonomous-loop", "project-context", "memory"],
     "builder": ["code-search", "test-driven-development", "verification-before-completion", "context7"],
     "tester": ["test-discipline", "verification-before-completion"],
     "debugger": ["code-search", "systematic-debugging", "verification-before-completion", "context7"],
@@ -59,6 +59,21 @@
       "version": "1.0.0",
       "path": "/opt/agent-factory/app/capabilities/frontend-verification.md",
       "roles": ["builder", "tester", "debugger", "reviewer"]
+    },
+    "goal-management": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/goal-management/SKILL.md",
+      "roles": ["planner"]
+    },
+    "autonomous-loop": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/autonomous-loop/SKILL.md",
+      "roles": ["planner"]
+    },
+    "project-context": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/project-context/SKILL.md",
+      "roles": ["planner", "scout", "reviewer"]
     }
   },
   "mcp": {
@@ -77,6 +92,16 @@
         "--isolated"
       ],
       "roles": ["builder", "tester", "debugger", "reviewer"]
+    },
+    "memory": {
+      "version": "2026.7.4",
+      "command": [
+        "/opt/agent-factory/app/node_modules/.bin/mcp-server-memory"
+      ],
+      "environment": {
+        "MEMORY_FILE_PATH": "/memory/knowledge-graph.jsonl"
+      },
+      "roles": ["planner", "scout", "reviewer"]
     }
   }
 }

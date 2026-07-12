@@ -60,7 +60,7 @@ for secret_name in \
   az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" --query id --output none
 done
 
-install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/home /opt/agent-factory/workspaces /opt/agent-factory/logs
+install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/home /opt/agent-factory/state/memory /opt/agent-factory/workspaces /opt/agent-factory/logs
 install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
 {
   printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"

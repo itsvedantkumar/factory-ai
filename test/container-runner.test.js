@@ -6,6 +6,7 @@ test("launches each task in a bounded hardened container without secrets in argu
   const calls = [];
   const runner = new ContainerAgentRunner({
     image: "ghcr.io/acme/factory@sha256:abc",
+    memoryDir: "/state/memory",
     timeoutMs: 60_000,
     execute: async (command, args, options) => {
       calls.push({ command, args, options });
@@ -27,6 +28,7 @@ test("launches each task in a bounded hardened container without secrets in argu
   assert.ok(call.args.includes("--pids-limit"));
   assert.ok(call.args.includes("--memory"));
   assert.ok(call.args.includes("TEXTVED_AZURE_API_KEY"));
+  assert.ok(call.args.includes("/state/memory:/memory:rw"));
   assert.equal(call.args.some((value) => value.includes("primary-secret-value")), false);
   assert.match(call.options.input, /"build000"/);
 });
@@ -35,6 +37,7 @@ test("uses the same isolation boundary for planning", async () => {
   const calls = [];
   const runner = new ContainerAgentRunner({
     image: "factory:test",
+    memoryDir: "/state/memory",
     timeoutMs: 60_000,
     execute: async (_command, _args, options) => {
       calls.push(options);

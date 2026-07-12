@@ -15,9 +15,10 @@ function parseOutput(stdout) {
 }
 
 export class ContainerAgentRunner {
-  constructor({ image, timeoutMs, execute = run }) {
+  constructor({ image, memoryDir, timeoutMs, execute = run }) {
     if (!image) throw new Error("FACTORY_WORKER_IMAGE is required");
     this.image = image;
+    this.memoryDir = memoryDir;
     this.timeoutMs = timeoutMs;
     this.execute = execute;
   }
@@ -35,6 +36,7 @@ export class ContainerAgentRunner {
       "--cpus", "2",
       "--tmpfs", "/tmp:rw,noexec,nosuid,size=1g",
       "--volume", `${path.resolve(directory)}:/workspace:rw`,
+      ...(this.memoryDir ? ["--volume", `${path.resolve(this.memoryDir)}:/memory:rw`] : []),
       "--workdir", "/workspace",
       "--env", "HOME=/tmp",
       ...AZURE_ENVIRONMENT.flatMap((nameValue) => ["--env", nameValue]),

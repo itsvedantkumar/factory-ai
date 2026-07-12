@@ -71,6 +71,10 @@ export class AzureAgentRunner {
   }
 
   async plan(objective, directory) {
+    const plannerCapabilities = selectCapabilities(this.registry, "planner", []);
+    const plannerSkills = await Promise.all(plannerCapabilities.filter((item) => item.type === "skill").map(async (item) => (
+      `PLANNER SKILL ${item.name}@${item.version}:\n${await readFile(item.path, "utf8")}`
+    )));
     const registrySummary = Object.fromEntries([
       ...Object.entries(this.registry.skills ?? {}),
       ...Object.entries(this.registry.mcp ?? {}),
@@ -80,8 +84,15 @@ Objective: ${objective.objective}
 Allowed roles: scout, builder, tester, debugger, reviewer, security, release.
 Allowed capabilities: ${JSON.stringify(registrySummary)}
 Include tester, reviewer, and security ancestors of exactly one terminal release task.
-Return only JSON: {"executiveIntent":"...","tasks":[{"id":"...","role":"...","title":"...","instructions":"...","dependsOn":[],"capabilities":[]}]}`;
-    const response = await this.harness("planner", directory).run(prompt);
-    return parseJson(response.text);
+Return only JSON: {"executiveIntent":"...","tasks":[{"id":"...","role":"...","title":"...","instructions":"...","dependsOn":[],"capabilities":[]}]}
+
+${plannerSkills.join("\n\n")}`;
+    const mcp = await connectMcpTools(plannerCapabilities);
+    try {
+      const response = await this.harness("planner", directory, mcp.tools).run(prompt);
+      return parseJson(response.text);
+    } finally {
+      await mcp.close();
+    }
   }
 }

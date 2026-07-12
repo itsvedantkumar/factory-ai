@@ -76,6 +76,17 @@ az vm run-command invoke --resource-group '<resource-group>' --name '<vm-name>' 
 
 ## CEO CLI
 
+Recommended operator interface:
+
+```bash
+bin/factory submit OWNER/REPO "/loop ship this objective"
+bin/factory dashboard
+bin/factory queue
+bin/factory doctor
+```
+
+Slash workflows available to the planner include `/goal` for rubric-driven outcomes and `/loop` for autonomous plan-act-verify-reflect delivery. Durable project knowledge is shared through the pinned MCP memory server on the retained data disk.
+
 Run on the VM so `--wait` can read the local durable result. Without `--wait`, any identity with Service Bus Data Sender access can enqueue when the same environment configuration is present.
 
 ```bash
@@ -124,4 +135,12 @@ Azure charges accrue for the `Standard_D8as_v5` VM and Premium SSD while allocat
 - A PR requires the Key Vault GitHub token to have repository push and pull-request permissions.
 - The GitHub token should be a fine-grained token restricted to intended repositories; branch protection and required GitHub reviews remain the final authority.
 - Required checks that stay pending consume the release timeout and then appear as blockers; rerun or resubmit after correcting CI.
-- Azure model deployment names and OpenCode Azure provider compatibility must be smoke-tested against the target Azure AI resource before enabling production objectives.
+- Azure Responses API and tool calling must be smoke-tested against both target model deployments before enabling production objectives.
+
+## Documentation
+
+- Architecture and trust boundaries: `ARCHITECTURE.md`
+- Operations and recovery: `RUNBOOK.md`
+- Security policy: `SECURITY.md`
+- Contributor setup: `CONTRIBUTING.md`
+- Friend/team handoff: `HANDOFF.md`

@@ -15,7 +15,7 @@ await run("gh", ["auth", "setup-git"], { timeoutMs: 60_000 });
 const bus = createBus(config, config.agentQueue, config.controlQueue);
 const executor = new AgentExecutor({
   workspaces: new WorkspaceManager(config.workspaceDir, config.timeoutMs),
-  agentRunner: new ContainerAgentRunner({ image: config.workerImage, timeoutMs: config.timeoutMs }),
+  agentRunner: new ContainerAgentRunner({ image: config.workerImage, memoryDir: config.memoryDir, timeoutMs: config.timeoutMs }),
   sendControl: (message) => sendMessage(bus.sender, message, `${message.objectiveId}:${message.type}:${message.taskId ?? "plan"}:${Date.now()}`, message.objectiveId),
 });
 
