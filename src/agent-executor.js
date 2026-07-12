@@ -1,9 +1,10 @@
 import { parseTaskResult } from "./validation.js";
 
 export class AgentExecutor {
-  constructor({ workspaces, agentRunner, sendControl }) {
+  constructor({ workspaces, agentRunner, scannerSuite, sendControl }) {
     this.workspaces = workspaces;
     this.agentRunner = agentRunner;
+    this.scannerSuite = scannerSuite;
     this.sendControl = sendControl;
   }
 
@@ -25,11 +26,18 @@ export class AgentExecutor {
       message.task,
       message.dependencyCommits ?? [],
     );
+    const scannerEvidence = message.task.role === "security" && this.scannerSuite
+      ? await this.scannerSuite.scan(directory)
+      : [];
+    const prompt = [
+      "Execute only this assigned task, verify it, and report factual outcomes.",
+      ...(scannerEvidence.length ? [`TRUSTED SCANNER EVIDENCE (mechanical output; do not claim checks beyond this evidence):\n${JSON.stringify(scannerEvidence)}`] : []),
+    ].join("\n\n");
     const result = parseTaskResult(await this.agentRunner.invoke({
       objective: message.objective,
       task: message.task,
       directory,
-      prompt: "Execute only this assigned task, verify it, and report factual outcomes.",
+      prompt,
     }));
     const checkpoint = await this.workspaces.checkpoint(directory, message.objective, message.task);
     await this.sendControl({

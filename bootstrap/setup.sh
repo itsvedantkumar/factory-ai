@@ -36,6 +36,13 @@ id "$FACTORY_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /us
 test -f "$APP_DIR/package-lock.json"
 npm ci --omit=dev --prefix "$APP_DIR"
 docker build --file "$APP_DIR/Dockerfile.worker" --tag "$FACTORY_WORKER_IMAGE" "$APP_DIR"
+for scanner_image in \
+  aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
+  zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+  ghcr.io/google/osv-scanner@sha256:f7ba4be68bac8086b1f88fd598fdca1ca67239c79ad2c2b5c78e03a82e5187c4 \
+  semgrep/semgrep@sha256:183a149fb3e9700ab5294a7b4ab0241a826fd046bc8b721062fbea80fdfa438f; do
+  docker pull "$scanner_image"
+done
 
 STATE_DEVICE=/dev/disk/azure/scsi1/lun0
 if [[ -b $STATE_DEVICE ]]; then

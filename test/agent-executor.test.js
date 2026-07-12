@@ -42,3 +42,25 @@ test("executes exactly one assigned task without reading orchestration state", a
   assert.equal(emitted[0].type, "result");
   assert.equal(emitted[0].taskId, "build000");
 });
+
+test("injects trusted scanner evidence into security tasks", async () => {
+  let prompt;
+  const executor = new AgentExecutor({
+    workspaces: {
+      prepareTask: async () => "/workspace/security",
+      checkpoint: async () => ({ commit: "0123456789abcdef0123456789abcdef01234567", branch: "factory-ai/o/security" }),
+    },
+    scannerSuite: { scan: async () => [{ scanner: "gitleaks", status: "passed", output: "no leaks" }] },
+    agentRunner: { invoke: async (packet) => { prompt = packet.prompt; return { summary: "safe", checks: [], risks: [], approval: "approved" }; } },
+    sendControl: async () => {},
+  });
+  await executor.process({
+    type: "agent_task",
+    objectiveId: "objective1",
+    objective: { id: "objective1", objective: "Review", repository: "https://github.com/acme/app.git", baseBranch: "main" },
+    task: { id: "security", role: "security", title: "Review", instructions: "Review", dependsOn: [], capabilities: [] },
+    dependencyCommits: [],
+  });
+  assert.match(prompt, /TRUSTED SCANNER EVIDENCE/);
+  assert.match(prompt, /gitleaks/);
+});

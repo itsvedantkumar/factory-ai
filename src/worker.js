@@ -8,6 +8,7 @@ import { run } from "./process.js";
 import { AgentExecutor } from "./agent-executor.js";
 import { sendMessage } from "./bus.js";
 import { ContainerAgentRunner } from "./container-runner.js";
+import { ScannerSuite } from "./scanner-suite.js";
 
 const config = loadConfig();
 Object.assign(process.env, await loadRuntimeSecrets(config));
@@ -17,6 +18,7 @@ const sendControl = (message) => sendMessage(bus.sender, message, `${message.obj
 const executor = new AgentExecutor({
   workspaces: new WorkspaceManager(config.workspaceDir, config.timeoutMs),
   agentRunner: new ContainerAgentRunner({ image: config.workerImage, memoryDir: config.memoryDir, timeoutMs: config.timeoutMs }),
+  scannerSuite: new ScannerSuite(),
   sendControl,
 });
 
