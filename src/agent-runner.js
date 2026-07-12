@@ -15,11 +15,13 @@ function parseJson(text) {
 }
 
 function endpointForRole(role, environment) {
-  const lightweight = modelForRole(role).endsWith("/gpt-5.4");
+  const route = modelForRole(role);
+  const [provider, model] = route.split("/");
+  const lightweight = provider === "azureai-responses";
   const baseUrl = lightweight ? environment.AZURE_OPENAI_BASE_URL : environment.TEXTVED_AZURE_BASE_URL;
   const apiKey = lightweight ? environment.AZURE_OPENAI_API_KEY : environment.TEXTVED_AZURE_API_KEY;
   if (!baseUrl || !apiKey) throw new Error(`Azure credentials are unavailable for ${role}`);
-  return { baseUrl, apiKey, model: lightweight ? "gpt-5.4" : "gpt-5.6-sol" };
+  return { baseUrl, apiKey, model };
 }
 
 export class AzureAgentRunner {

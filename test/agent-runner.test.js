@@ -25,8 +25,8 @@ test("routes each role to the correct Azure endpoint without OpenCode", async ()
   await runner.invoke({ objective, task: { id: "scout001", role: "scout", instructions: "Inspect", capabilities: [] }, directory, prompt: "Work" });
   await runner.invoke({ objective, task: { id: "build001", role: "builder", instructions: "Build", capabilities: [] }, directory, prompt: "Work" });
 
-  assert.equal(created[0].baseUrl, "https://small.test/openai/v1");
-  assert.equal(created[0].model, "gpt-5.4");
+  assert.equal(created[0].baseUrl, "https://primary.test/openai/v1");
+  assert.equal(created[0].model, "factory-gpt-5-4-nano");
   assert.equal(created[1].baseUrl, "https://primary.test/openai/v1");
   assert.equal(created[1].model, "gpt-5.6-sol");
   assert.ok(created.every((entry) => entry.tools.read_file && entry.tools.run_command));

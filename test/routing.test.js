@@ -2,10 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { modelForRole } from "../src/routing.js";
 
-test("routes lightweight roles to GPT-5.4", () => {
-  for (const role of ["scout", "tester"]) {
-    assert.equal(modelForRole(role), "azureai-responses/gpt-5.4");
-  }
+test("routes scouting to benchmarked GPT-5.4 nano", () => {
+  assert.equal(modelForRole("scout"), "azureai-textved/factory-gpt-5-4-nano");
+});
+
+test("routes independent testing to GPT-5.4", () => {
+  assert.equal(modelForRole("tester"), "azureai-responses/gpt-5.4");
 });
 
 test("routes engineering judgment roles to GPT-5.6", () => {

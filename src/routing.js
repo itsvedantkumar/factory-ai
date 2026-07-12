@@ -10,7 +10,7 @@ export const ROLES = Object.freeze([
 ]);
 
 const MODELS = Object.freeze({
-  scout: "azureai-responses/gpt-5.4",
+  scout: "azureai-textved/factory-gpt-5-4-nano",
   tester: "azureai-responses/gpt-5.4",
   planner: "azureai-textved/gpt-5.6-sol",
   builder: "azureai-textved/gpt-5.6-sol",
