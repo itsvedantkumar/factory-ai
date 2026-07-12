@@ -114,11 +114,15 @@ install -m 0644 "$APP_DIR/bootstrap/agent-factory-release.service" /etc/systemd/
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-reporter.service" /etc/systemd/system/agent-factory-reporter.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-reporter.timer" /etc/systemd/system/agent-factory-reporter.timer
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-telegram.service" /etc/systemd/system/agent-factory-telegram.service
+install -m 0755 "$APP_DIR/bootstrap/auto-update.sh" /opt/agent-factory/app/bootstrap/auto-update.sh
+install -m 0644 "$APP_DIR/bootstrap/factory-ai-update.service" /etc/systemd/system/factory-ai-update.service
+install -m 0644 "$APP_DIR/bootstrap/factory-ai-update.timer" /etc/systemd/system/factory-ai-update.timer
 systemctl daemon-reload
 systemctl enable --now agent-factory-worker.service
 systemctl enable --now agent-factory-control.service
 systemctl enable --now agent-factory-release.service
 systemctl enable --now agent-factory-reporter.timer
 systemctl enable --now agent-factory-telegram.service
+systemctl enable --now factory-ai-update.timer
 systemctl restart agent-factory-control.service agent-factory-worker.service agent-factory-release.service
 echo "Agent factory worker installed"

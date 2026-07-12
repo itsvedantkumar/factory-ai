@@ -1,0 +1,17 @@
+[Unit]
+Description=Factory AI verified stable update
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/agent-factory/app/bootstrap/auto-update.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+ProtectHome=true
+UMask=0027

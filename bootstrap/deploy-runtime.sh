@@ -72,3 +72,11 @@ FACTORY_MODEL_REVIEWER="${FACTORY_MODEL_REVIEWER:-}" \
 FACTORY_MODEL_SECURITY="${FACTORY_MODEL_SECURITY:-}" \
 FACTORY_MODEL_RELEASE="${FACTORY_MODEL_RELEASE:-}" \
 bash /opt/agent-factory/app/bootstrap/setup.sh
+install -d -o factory -g factory -m 0750 /opt/agent-factory/state
+version=$(node -p 'require("/opt/agent-factory/app/package.json").version')
+jq -n --arg version "$version" --arg commit "$SOURCE_REF" --arg repository "$SOURCE_REPOSITORY" \
+  '{version:$version,commit:$commit,repository:$repository,installedAt:(now|todate)}' \
+  > /opt/agent-factory/state/runtime-version.json.tmp
+chown factory:factory /opt/agent-factory/state/runtime-version.json.tmp
+chmod 0640 /opt/agent-factory/state/runtime-version.json.tmp
+mv /opt/agent-factory/state/runtime-version.json.tmp /opt/agent-factory/state/runtime-version.json

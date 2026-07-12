@@ -201,7 +201,20 @@ Only explicitly allowlisted chat IDs are accepted. Supported commands:
 /help
 ```
 
-Telegram cannot run shell commands, read secrets, modify release policy, or bypass review gates. Durable update offsets prevent duplicate objectives after restarts.
+Set a default repository with `/repo OWNER/REPO`, then send plain-text instructions without a command. `/recent` lists recent objectives and `/objective ID` shows task-level detail. Factory AI automatically pushes deduplicated status, active-agent, completion, PR, failure, and blocker updates to the originating chat.
+
+Telegram cannot run shell commands, read secrets, modify release policy, or bypass review gates. Durable update offsets, repository preferences, and objective subscriptions survive restarts.
+
+## Verified Automatic Updates
+
+The VM checks npm stable releases every six hours with a randomized delay. Updates are accepted only when:
+
+- The release remains within the installed major version.
+- npm `gitHead` resolves to the exact GitHub commit.
+- The commit has successful CI.
+- A fresh isolated clone passes install, syntax, lint, tests, dependency audit, Bicep, shell validation, and Gitleaks.
+
+The updater records the installed version on retained storage and restores the previous commit if deployment fails. Major upgrades always require explicit operator action.
 
 ## Security
 

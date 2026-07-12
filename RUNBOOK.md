@@ -31,6 +31,8 @@ factory setup
 
 Override defaults with `FACTORY_RESOURCE_GROUP`, `FACTORY_VM`, and `FACTORY_SERVICE_BUS`.
 
+Verified stable updates run every six hours through `factory-ai-update.timer`. Inspect with `systemctl status factory-ai-update.timer` and `journalctl -u factory-ai-update.service`. Automatic major-version upgrades are intentionally blocked.
+
 ## Recovery
 
 If a worker dies, systemd restarts it and Service Bus redelivers after lock expiry. Do not manually duplicate the task. Check `dashboard`, then `logs`, then queue dead-letter counts. Preserve objective state before purging dead letters.

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { DefaultAzureCredential } from "@azure/identity";
 import { ServiceBusClient } from "@azure/service-bus";
 import { loadConfig } from "./config.js";
 import { loadRuntimeSecrets } from "./secrets.js";
 import { sendMessage } from "./bus.js";
 import { loadLocalState, loadQueueMetrics } from "./dashboard.js";
-import { isAllowedChat, objectiveFromTelegram, parseTelegramCommand } from "./telegram.js";
+import { formatObjectiveProgress, isAllowedChat, objectiveFromTelegram, parseTelegramCommand } from "./telegram.js";
 import { log } from "./log.js";
 
 const config = loadConfig();
@@ -21,9 +22,16 @@ if (!token || allowed.size === 0) {
 
 const directory = path.join(config.stateDir, "telegram");
 const offsetFile = path.join(directory, "offset");
+const preferencesFile = path.join(directory, "preferences.json");
+const subscriptionsFile = path.join(directory, "subscriptions.json");
 await mkdir(directory, { recursive: true, mode: 0o750 });
 let offset = 0;
 try { offset = Number(await readFile(offsetFile, "utf8")) || 0; } catch (error) { if (error.code !== "ENOENT") throw error; }
+async function loadJson(file) {
+  try { return JSON.parse(await readFile(file, "utf8")); } catch (error) { if (error.code === "ENOENT") return {}; throw error; }
+}
+const preferences = await loadJson(preferencesFile);
+const subscriptions = await loadJson(subscriptionsFile);
 
 const client = new ServiceBusClient(config.serviceBusFqdn, new DefaultAzureCredential());
 const sender = client.createSender(config.controlQueue);
@@ -51,6 +59,12 @@ async function saveOffset(value) {
   await rename(temporary, offsetFile);
 }
 
+async function saveJson(file, value) {
+  const temporary = `${file}.${process.pid}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o640 });
+  await rename(temporary, file);
+}
+
 async function statusText() {
   const [{ states }, queue] = await Promise.all([loadLocalState(config.stateDir), loadQueueMetrics(config)]);
   const counts = {};
@@ -62,15 +76,50 @@ async function processUpdate(update) {
   const message = update.message;
   if (!message?.text || !isAllowedChat(message.chat?.id, allowed)) return;
   try {
-    const command = parseTelegramCommand(message.text);
-    if (command.type === "help") return reply(message.chat.id, "/submit OWNER/REPO objective\n/goal OWNER/REPO objective\n/loop OWNER/REPO objective\n/status\n/help");
+    const chatId = String(message.chat.id);
+    const command = parseTelegramCommand(message.text, preferences[chatId]?.repository);
+    if (command.type === "help") return reply(message.chat.id, "/repo OWNER/REPO\nPlain text objective\n/submit OWNER/REPO objective\n/goal [OWNER/REPO] objective\n/loop [OWNER/REPO] objective\n/status\n/recent\n/objective ID\n/help");
     if (command.type === "status") return reply(message.chat.id, await statusText());
+    if (command.type === "set_repository") {
+      preferences[chatId] = { repository: command.repository, updatedAt: new Date().toISOString() };
+      await saveJson(preferencesFile, preferences);
+      return reply(message.chat.id, `Default repository set to ${command.repository}. You can now send plain-text objectives.`);
+    }
+    if (command.type === "recent") {
+      const { states } = await loadLocalState(config.stateDir);
+      const text = states.slice(-10).reverse().map((state) => `${state.status ?? "unknown"} — ${state.objective?.id}\n${String(state.objective?.objective ?? "").slice(0, 150)}`).join("\n\n") || "No objectives.";
+      return reply(message.chat.id, text);
+    }
+    if (command.type === "objective") {
+      const state = JSON.parse(await readFile(path.join(config.stateDir, command.objectiveId, "state.json"), "utf8"));
+      return reply(message.chat.id, formatObjectiveProgress(state));
+    }
     const objective = objectiveFromTelegram(update.update_id, command);
     await sendMessage(sender, objective, objective.id);
+    subscriptions[objective.id] = { chatId, lastDigest: "", createdAt: new Date().toISOString() };
+    await saveJson(subscriptionsFile, subscriptions);
     await reply(message.chat.id, `Queued ${objective.id}\n${command.repository}\n${command.objective}`);
   } catch (error) {
     await reply(message.chat.id, `Rejected: ${String(error.message ?? error).slice(0, 500)}`);
   }
+}
+
+async function notifyProgress() {
+  let changed = false;
+  for (const [objectiveId, subscription] of Object.entries(subscriptions)) {
+    let state;
+    try { state = JSON.parse(await readFile(path.join(config.stateDir, objectiveId, "state.json"), "utf8")); }
+    catch (error) { if (error.code === "ENOENT") continue; throw error; }
+    const text = formatObjectiveProgress(state);
+    const digest = createHash("sha256").update(text).digest("hex");
+    if (digest === subscription.lastDigest) continue;
+    await reply(subscription.chatId, text);
+    subscription.lastDigest = digest;
+    subscription.lastStatus = state.status;
+    subscription.notifiedAt = new Date().toISOString();
+    changed = true;
+  }
+  if (changed) await saveJson(subscriptionsFile, subscriptions);
 }
 
 async function shutdown(signal) {
@@ -91,6 +140,7 @@ while (!abort.signal.aborted) {
       offset = update.update_id + 1;
       await saveOffset(offset);
     }
+    await notifyProgress();
   } catch (error) {
     if (abort.signal.aborted) break;
     log("error", "telegram_poll_failed", { error: String(error.message ?? error).replaceAll(token, "[REDACTED]").slice(0, 1000) });

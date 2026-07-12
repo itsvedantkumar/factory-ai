@@ -11,6 +11,13 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 - Azure and Bedrock provider wizard.
 - Durable evaluation, analytics, scaling, policy, extension, and recovery roadmap.
 
+## [1.2.0] - 2026-07-13
+
+### Added
+
+- Telegram natural-language objectives, default repositories, objective lookup, and automatic progress/completion notifications.
+- Six-hour verified stable updates with CI/security gates, durable version records, major-version blocking, and rollback.
+
 ## [1.1.0] - 2026-07-13
 
 ### Added
