@@ -59,6 +59,7 @@ fi
 
 az login --identity --allow-no-subscriptions --output none
 subscription_id=$(az account show --query id --output tsv)
+resource_group=$(curl -fsS -H Metadata:true 'http://169.254.169.254/metadata/instance?api-version=2021-02-01' | jq -r .compute.resourceGroupName)
 for secret_name in "${GITHUB_TOKEN_SECRET:-github-token}"; do
   az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" --query id --output none
 done
@@ -72,7 +73,7 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'RELEASE_QUEUE=release-tasks\n'
   printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
   printf 'AZURE_SUBSCRIPTION_ID=%s\n' "$subscription_id"
-  printf 'FACTORY_RESOURCE_GROUP=rg-vedant-3569\n'
+  printf 'FACTORY_RESOURCE_GROUP=%s\n' "$resource_group"
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_WORKSPACE_DIR=/opt/agent-factory/workspaces\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
@@ -94,7 +95,7 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
   printf 'RELEASE_QUEUE=release-tasks\n'
   printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
   printf 'AZURE_SUBSCRIPTION_ID=%s\n' "$subscription_id"
-  printf 'FACTORY_RESOURCE_GROUP=rg-vedant-3569\n'
+  printf 'FACTORY_RESOURCE_GROUP=%s\n' "$resource_group"
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
   printf 'MAX_DELIVERY_COUNT=8\n'

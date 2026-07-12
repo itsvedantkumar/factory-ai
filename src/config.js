@@ -8,7 +8,7 @@ const environmentSchema = z.object({
   RELEASE_QUEUE: z.string().min(1).default("release-tasks"),
   KEY_VAULT_NAME: z.string().min(3),
   AZURE_SUBSCRIPTION_ID: z.string().optional(),
-  FACTORY_RESOURCE_GROUP: z.string().default("rg-vedant-3569"),
+  FACTORY_RESOURCE_GROUP: z.string().default("factory-ai-rg"),
   FACTORY_STATE_DIR: z.string().default("/opt/agent-factory/state"),
   FACTORY_WORKSPACE_DIR: z.string().default("/opt/agent-factory/workspaces"),
   FACTORY_REGISTRY: z.string().default("/opt/agent-factory/app/config/capabilities.json"),

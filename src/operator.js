@@ -16,10 +16,10 @@ async function command(name, args, options = {}) {
 }
 
 export function createOperator(environment = process.env) {
-  const resourceGroup = environment.FACTORY_RESOURCE_GROUP ?? "rg-vedant-3569";
+  const resourceGroup = environment.FACTORY_RESOURCE_GROUP ?? "factory-ai-rg";
   const vm = environment.FACTORY_VM ?? "agent-factory-vm";
-  const namespace = environment.FACTORY_SERVICE_BUS ?? "af-4jelq52xdxoty";
-  const vault = environment.FACTORY_KEY_VAULT ?? "af4jelq52xdxoty";
+  const namespace = environment.FACTORY_SERVICE_BUS ?? "";
+  const vault = environment.FACTORY_KEY_VAULT ?? "";
   const remote = async (script) => extractRunCommand(await command("az", ["vm", "run-command", "invoke", "--resource-group", resourceGroup, "--name", vm, "--command-id", "RunShellScript", "--scripts", script, "--query", "value[0].message", "--output", "tsv"]));
   const withVault = async (operation) => {
     const ip = await command("curl", ["-fsS", "https://api.ipify.org"]);

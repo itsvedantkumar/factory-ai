@@ -2,9 +2,9 @@
 
 <div align="center">
 
-**A durable, private coding organization that runs in your cloud.**
+**Securely deploy your own autonomous software-engineering factory on Azure.**
 
-One CEO interface. A deterministic CTO. Isolated specialist agents. Reviewed pull requests.
+One CEO interface delegates to a deterministic CTO that coordinates isolated coding, testing, security, and release agents across Azure AI and Bedrock—then delivers verified GitHub pull requests with durable memory, recovery, and cost visibility.
 
 [![CI](https://github.com/itsvedantkumar/factory-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/itsvedantkumar/factory-ai/actions/workflows/ci.yml)
 [![Node 20](https://img.shields.io/badge/node-20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
