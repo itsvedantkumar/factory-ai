@@ -3,6 +3,20 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { modelForRole } from "./routing.js";
+import { DefaultAzureCredential } from "@azure/identity";
+import { ServiceBusAdministrationClient } from "@azure/service-bus";
+import { loadConfig } from "./config.js";
+
+export async function loadQueueMetrics(config, {
+  createAdmin = () => new ServiceBusAdministrationClient(config.serviceBusFqdn, new DefaultAzureCredential()),
+} = {}) {
+  const admin = createAdmin();
+  const properties = await Promise.all([config.controlQueue, config.agentQueue, config.releaseQueue].map((queue) => admin.getQueueRuntimeProperties(queue)));
+  return {
+    active: properties.reduce((total, item) => total + (item.activeMessageCount ?? 0), 0),
+    deadLetter: properties.reduce((total, item) => total + (item.deadLetterMessageCount ?? 0), 0),
+  };
+}
 
 export function humanDuration(seconds) {
   const value = Math.max(0, Math.floor(seconds ?? 0));
@@ -113,7 +127,9 @@ async function main() {
   const root = process.env.FACTORY_STATE_DIR ?? "/opt/agent-factory/state";
   const json = process.argv.includes("--json");
   const loaded = await loadLocalState(root);
-  const dashboard = aggregateDashboard({ ...loaded, runtime: { status: "running" } });
+  let queue = {};
+  if (process.env.SERVICE_BUS_NAMESPACE) queue = await loadQueueMetrics(loadConfig());
+  const dashboard = aggregateDashboard({ ...loaded, queue, runtime: { status: "running" } });
   process.stdout.write(json ? stableStringify(dashboard) : `${renderDashboard(dashboard, { width: process.stdout.columns ?? 100 })}\n`);
 }
 

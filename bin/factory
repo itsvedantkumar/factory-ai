@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RESOURCE_GROUP=${FACTORY_RESOURCE_GROUP:-rg-vedant-3569}
+VM=${FACTORY_VM:-agent-factory-vm}
+NAMESPACE=${FACTORY_SERVICE_BUS:-af-4jelq52xdxoty}
+
+remote() {
+  az vm run-command invoke --resource-group "$RESOURCE_GROUP" --name "$VM" \
+    --command-id RunShellScript --scripts "$1" --query 'value[0].message' --output tsv
+}
+
+usage() {
+  printf '%s\n' \
+    'Agent Factory operator console' \
+    'Usage: factory <command>' \
+    '  submit <owner/repo> <objective>' \
+    '  dashboard | status | queue | report | logs | doctor' \
+    '  pause | resume'
+}
+
+command=${1:-help}
+shift || true
+case "$command" in
+  submit)
+    repo=${1:?repository owner/name required}
+    shift
+    objective=${*:?objective required}
+    [[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { printf 'Invalid repository\n' >&2; exit 2; }
+    repo64=$(printf '%s' "$repo" | base64)
+    objective64=$(printf '%s' "$objective" | base64)
+    remote "repo=\$(printf '%s' '$repo64' | base64 -d); objective=\$(printf '%s' '$objective64' | base64 -d); sudo -u factory env \$(xargs < /etc/agent-factory-control.env) node /opt/agent-factory/app/src/ceo.js --repo \"https://github.com/\$repo.git\" --base main \"\$objective\""
+    ;;
+  dashboard|status)
+    remote 'sudo -u factory env $(xargs < /etc/agent-factory-control.env) node /opt/agent-factory/app/src/dashboard.js'
+    ;;
+  queue)
+    az servicebus queue list --resource-group "$RESOURCE_GROUP" --namespace-name "$NAMESPACE" \
+      --query '[].{queue:name,active:countDetails.activeMessageCount,deadLetter:countDetails.deadLetterMessageCount}' --output table
+    ;;
+  report)
+    remote 'node -e '\''const fs=require("fs"),p="/opt/agent-factory/state/reports";const f=fs.readdirSync(p).filter(x=>x.endsWith(".md")).sort().at(-1);process.stdout.write(fs.readFileSync(`${p}/${f}`,"utf8"))'\'''
+    ;;
+  logs)
+    remote 'journalctl -u agent-factory-control -u agent-factory-worker -u agent-factory-release --since "1 hour ago" --no-pager -n 250'
+    ;;
+  doctor)
+    remote 'systemctl is-active agent-factory-control agent-factory-worker agent-factory-release; systemctl is-enabled agent-factory-reporter.timer; docker ps --format "{{.Names}} {{.Status}}"; df -h /opt/agent-factory; free -h'
+    ;;
+  pause)
+    remote 'systemctl stop agent-factory-worker agent-factory-release'
+    ;;
+  resume)
+    remote 'systemctl start agent-factory-worker agent-factory-release; systemctl is-active agent-factory-worker agent-factory-release'
+    ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

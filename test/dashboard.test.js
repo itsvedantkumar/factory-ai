@@ -9,6 +9,7 @@ import {
   loadLocalState,
   renderDashboard,
   stableStringify,
+  loadQueueMetrics,
 } from "../src/dashboard.js";
 
 const state = {
@@ -46,6 +47,13 @@ test("aggregates objective and task operator state", () => {
   assert.equal(dashboard.objectives[0].tasks[0].model, "azureai-textved/gpt-5.6-sol");
   assert.equal(dashboard.objectives[0].tasks[1].state, "ready");
   assert.deepEqual(dashboard.objectives[0].checks, ["build-one: npm test"]);
+});
+
+test("loads active and dead-letter counts across all durable queues", async () => {
+  const metrics = await loadQueueMetrics({ serviceBusFqdn: "factory.servicebus.windows.net", controlQueue: "control", agentQueue: "agents", releaseQueue: "release" }, {
+    createAdmin: () => ({ getQueueRuntimeProperties: async (name) => ({ activeMessageCount: name === "agents" ? 2 : 1, deadLetterMessageCount: name === "control" ? 3 : 0 }) }),
+  });
+  assert.deepEqual(metrics, { active: 4, deadLetter: 3 });
 });
 
 test("loads valid state while recording corrupt and partial files", async () => {

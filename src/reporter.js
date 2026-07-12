@@ -2,7 +2,8 @@
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { aggregateDashboard, loadLocalState, stableStringify } from "./dashboard.js";
+import { aggregateDashboard, loadLocalState, loadQueueMetrics, stableStringify } from "./dashboard.js";
+import { loadConfig } from "./config.js";
 
 function markdown(dashboard) {
   const objectives = Object.entries(dashboard.summary.objectives).map(([state, count]) => `${state}=${count}`).join(", ") || "none";
@@ -31,7 +32,8 @@ export async function writeHourlyReport(root, dashboard, { now = new Date(), ret
 async function main() {
   const root = process.env.FACTORY_STATE_DIR ?? "/opt/agent-factory/state";
   const loaded = await loadLocalState(root);
-  const dashboard = aggregateDashboard({ ...loaded, runtime: { status: "running" } });
+  const queue = process.env.SERVICE_BUS_NAMESPACE ? await loadQueueMetrics(loadConfig()) : {};
+  const dashboard = aggregateDashboard({ ...loaded, queue, runtime: { status: "running" } });
   const stem = await writeHourlyReport(root, dashboard);
   process.stdout.write(`${JSON.stringify({ event: "hourly_report", report: stem })}\n`);
 }
