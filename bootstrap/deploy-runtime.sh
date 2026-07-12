@@ -7,9 +7,18 @@ if [[ ${EUID} -ne 0 ]]; then
   exit 1
 fi
 
-for parameter in "$@"; do
-  name=${parameter%%=*}
-  value=${parameter#*=}
+while (($# > 0)); do
+  if [[ $1 == *=* ]]; then
+    name=${1%%=*}
+    value=${1#*=}
+    shift
+  else
+    name=$1
+    shift
+    (($# > 0)) || { echo "Missing value for $name" >&2; exit 1; }
+    value=$1
+    shift
+  fi
   case "$name" in
     KEY_VAULT_NAME|SERVICE_BUS_NAMESPACE|SERVICE_BUS_QUEUE|SOURCE_REPOSITORY|SOURCE_REF) printf -v "$name" '%s' "$value" ;;
     *) echo "Unknown deployment parameter: $name" >&2; exit 1 ;;
