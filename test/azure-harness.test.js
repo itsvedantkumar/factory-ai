@@ -33,6 +33,7 @@ test("continues a response after executing an allowlisted function", async () =>
 
   assert.equal(result.text, '{"summary":"done"}');
   assert.equal(requests[1].previous_response_id, "response-1");
+  assert.equal(Object.hasOwn(requests[0].tools[0], "strict"), false);
   assert.deepEqual(requests[1].input, [{ type: "function_call_output", call_id: "call-1", output: "content:README.md" }]);
 });
 

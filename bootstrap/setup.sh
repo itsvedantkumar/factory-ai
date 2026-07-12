@@ -89,4 +89,5 @@ systemctl enable --now agent-factory-worker.service
 systemctl enable --now agent-factory-control.service
 systemctl enable --now agent-factory-release.service
 systemctl enable --now agent-factory-reporter.timer
+systemctl restart agent-factory-control.service agent-factory-worker.service agent-factory-release.service
 echo "Agent factory worker installed"
