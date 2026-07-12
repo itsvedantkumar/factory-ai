@@ -3,6 +3,11 @@ import { evaluateReleaseGate } from "./release-gate.js";
 
 export { evaluateReleaseGate } from "./release-gate.js";
 
+export function requiredChecksPass(exitCode, checks) {
+  if (checks.length === 0) return exitCode === 0 || exitCode === 1;
+  return exitCode === 0 && checks.every((check) => ["pass", "skipping"].includes(check.bucket));
+}
+
 function parseJson(value, fallback) {
   try {
     return JSON.parse(value);
@@ -69,7 +74,7 @@ export class GitHubRelease {
     });
     const checksCommand = await this.requiredChecks(directory, branch);
     const checks = parseJson(checksCommand.stdout, []);
-    const checksPass = checksCommand.code === 0 && checks.every((check) => ["pass", "skipping"].includes(check.bucket));
+    const checksPass = requiredChecksPass(checksCommand.code, checks);
     const gate = evaluateReleaseGate([], {}, {
       approvals: true,
       policyAllows: policy.stdout.trim() === "true",

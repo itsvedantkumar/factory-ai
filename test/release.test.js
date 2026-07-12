@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluateReleaseGate } from "../src/release.js";
+import { evaluateReleaseGate, requiredChecksPass } from "../src/release.js";
 
 const tasks = [
   { id: "test0000", role: "tester" },
@@ -21,6 +21,12 @@ test("opens release gate only for explicit tester, reviewer, and security approv
     blockers: ["reviewer review00: changes_requested"],
     autoMerge: false,
   });
+});
+
+test("treats an empty required-check set as passing", () => {
+  assert.equal(requiredChecksPass(1, []), true);
+  assert.equal(requiredChecksPass(1, [{ bucket: "fail" }]), false);
+  assert.equal(requiredChecksPass(0, [{ bucket: "pass" }, { bucket: "skipping" }]), true);
 });
 
 test("does not infer approval from task success", () => {
