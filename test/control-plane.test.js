@@ -50,3 +50,13 @@ test("validated planning results dispatch ready task packets", async () => {
   assert.equal(sent[0].type, "agent_task");
   assert.equal(sent[0].objective.objective, "Ship safely");
 });
+
+test("records permanent worker failures instead of leaving objectives queued", async () => {
+  const store = new MemoryStore();
+  store.writeResult = async (id, result) => { store.result = { id, result }; };
+  await store.write(objective.id, { objective, status: "running", tasks: [], results: {} });
+  const control = new ControlPlane({ store, registry: {}, sendTask: async () => {} });
+  await control.acceptFailure({ type: "failure_result", objectiveId: objective.id, taskId: "test", error: "content_filter" });
+  assert.equal((await store.read(objective.id)).status, "failed");
+  assert.equal(store.result.result.blockers[0], "test: content_filter");
+});

@@ -13,10 +13,11 @@ const config = loadConfig();
 Object.assign(process.env, await loadRuntimeSecrets(config));
 await run("gh", ["auth", "setup-git"], { timeoutMs: 60_000 });
 const bus = createBus(config, config.agentQueue, config.controlQueue);
+const sendControl = (message) => sendMessage(bus.sender, message, `${message.objectiveId}:${message.type}:${message.taskId ?? "plan"}:v1`, message.objectiveId);
 const executor = new AgentExecutor({
   workspaces: new WorkspaceManager(config.workspaceDir, config.timeoutMs),
   agentRunner: new ContainerAgentRunner({ image: config.workerImage, memoryDir: config.memoryDir, timeoutMs: config.timeoutMs }),
-  sendControl: (message) => sendMessage(bus.sender, message, `${message.objectiveId}:${message.type}:${message.taskId ?? "plan"}:${Date.now()}`, message.objectiveId),
+  sendControl,
 });
 
 let shuttingDown = false;
@@ -33,7 +34,14 @@ const subscription = bus.receiver.subscribe({
         deliveryCount: message.deliveryCount,
         error: error.message,
       });
-      if (message.deliveryCount >= config.maxDeliveryCount) {
+      const permanent = error.message.includes("content_filter") || message.deliveryCount >= config.maxDeliveryCount;
+      if (permanent) {
+        await sendControl({
+          type: "failure_result",
+          objectiveId: body?.objectiveId,
+          taskId: body?.task?.id,
+          error: String(error.message).slice(0, 2000),
+        });
         await bus.receiver.deadLetterMessage(message, {
           deadLetterReason: "MaxDeliveryExceeded",
           deadLetterErrorDescription: String(error.message).slice(0, 4096),

@@ -26,6 +26,7 @@ const subscription = bus.receiver.subscribe({
       else if (message.body?.type === "planning_result") await control.acceptPlanningResult(message.body);
       else if (message.body?.type === "result") await control.acceptTaskResult(message.body);
       else if (message.body?.type === "release_result") await control.acceptReleaseResult(message.body);
+      else if (message.body?.type === "failure_result") await control.acceptFailure(message.body);
       else throw new Error(`Unsupported control message type: ${message.body?.type}`);
       await bus.receiver.completeMessage(message);
     } catch (error) {

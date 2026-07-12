@@ -95,6 +95,21 @@ export class ControlPlane {
     });
   }
 
+  async acceptFailure(value) {
+    if (value?.type !== "failure_result" || typeof value.objectiveId !== "string" || typeof value.error !== "string") throw new Error("Invalid failure result");
+    const blocker = `${value.taskId ?? "unknown-task"}: ${value.error}`;
+    const state = await this.store.update(value.objectiveId, (current) => ({ ...current, status: "failed", failure: blocker, completedAt: new Date().toISOString() }));
+    await this.store.writeResult(value.objectiveId, {
+      objectiveId: value.objectiveId,
+      status: "failed",
+      executiveSummary: state.executiveIntent ?? state.objective.objective,
+      checks: [],
+      blockers: [blocker],
+      autoMergeEnabled: false,
+      completedAt: state.completedAt,
+    });
+  }
+
   async dispatch(objectiveId) {
     const state = await this.store.read(objectiveId);
     for (const taskId of readyTasks(state.tasks, state.results)) {
