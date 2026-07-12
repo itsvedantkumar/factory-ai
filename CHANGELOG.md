@@ -11,6 +11,12 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 - Azure and Bedrock provider wizard.
 - Durable evaluation, analytics, scaling, policy, extension, and recovery roadmap.
 
+## [1.2.1] - 2026-07-13
+
+### Fixed
+
+- Make updater installation idempotent when the staged application already occupies the final runtime path.
+
 ## [1.2.0] - 2026-07-13
 
 ### Added
