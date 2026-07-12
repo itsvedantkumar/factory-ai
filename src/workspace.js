@@ -44,14 +44,15 @@ export class WorkspaceManager {
   }
 
   async prepareTask(objective, task, dependencyCommits = []) {
-    const control = await this.ensureObjective(objective);
     const directory = this.taskDirectory(objective.id, task.id);
     if (await exists(directory)) return directory;
     await mkdir(path.dirname(directory), { recursive: true, mode: 0o750 });
-    await run("git", ["-C", control, "fetch", "--prune", "origin", objective.baseBranch], { timeoutMs: this.timeoutMs });
     const base = dependencyCommits[0] ?? `origin/${objective.baseBranch}`;
     const branch = `agent-factory/${objective.id}/${task.id}`;
-    await run("git", ["-C", control, "worktree", "add", "-b", branch, directory, base], { timeoutMs: this.timeoutMs });
+    await run("git", ["clone", objective.repository, directory], { timeoutMs: this.timeoutMs });
+    await run("git", ["-C", directory, "config", "user.name", "Agent Factory"]);
+    await run("git", ["-C", directory, "config", "user.email", "agent-factory@localhost"]);
+    await run("git", ["-C", directory, "checkout", "-b", branch, base], { timeoutMs: this.timeoutMs });
     for (const commit of dependencyCommits.slice(1)) {
       await run("git", ["-C", directory, "merge", "--no-edit", commit], { timeoutMs: this.timeoutMs });
     }
