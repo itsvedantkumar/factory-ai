@@ -21,6 +21,12 @@ jobs:
       - run: npm run check
       - run: npm run lint
       - run: npm test
-      - run: npm publish --access public --provenance
+      - name: Publish npm package if version is new
+        run: |
+          if npm view "${npm_package_name}@${npm_package_version}" version >/dev/null 2>&1; then
+            echo "${npm_package_name}@${npm_package_version} is already published"
+            exit 0
+          fi
+          npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
