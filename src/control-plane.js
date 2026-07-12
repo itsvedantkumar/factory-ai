@@ -1,12 +1,14 @@
 import { parseObjective, parsePlan, parseResultMessage } from "./validation.js";
 import { validateDeliveryGraph, readyTasks } from "./task-graph.js";
 import { selectCapabilities } from "./capabilities.js";
+import { evaluateReleaseGate } from "./release-gate.js";
 
 export class ControlPlane {
-  constructor({ store, registry, sendTask }) {
+  constructor({ store, registry, sendTask, sendRelease = async () => { throw new Error("Release sender is unavailable"); } }) {
     this.store = store;
     this.registry = registry;
     this.sendTask = sendTask;
+    this.sendRelease = sendRelease;
   }
 
   async acceptObjective(value) {
@@ -65,6 +67,21 @@ export class ControlPlane {
     await this.dispatch(result.objectiveId);
   }
 
+  async acceptReleaseResult(value) {
+    if (value?.type !== "release_result" || typeof value.objectiveId !== "string" || !value.release?.url) throw new Error("Invalid release result");
+    const state = await this.store.update(value.objectiveId, (current) => ({ ...current, status: "complete", release: value.release, completedAt: new Date().toISOString() }));
+    await this.store.writeResult(value.objectiveId, {
+      objectiveId: value.objectiveId,
+      status: "complete",
+      executiveSummary: state.executiveIntent ?? state.objective.objective,
+      pullRequest: value.release.url,
+      checks: value.release.checks ?? [],
+      blockers: value.release.blockers ?? [],
+      autoMergeEnabled: value.release.autoMergeEnabled ?? false,
+      completedAt: state.completedAt,
+    });
+  }
+
   async dispatch(objectiveId) {
     const state = await this.store.read(objectiveId);
     for (const taskId of readyTasks(state.tasks, state.results)) {
@@ -77,8 +94,21 @@ export class ControlPlane {
       }));
     }
     const latest = await this.store.read(objectiveId);
-    if (latest.tasks.length > 0 && latest.tasks.every((task) => latest.results[task.id]?.status === "succeeded")) {
-      await this.store.update(objectiveId, (current) => ({ ...current, status: "awaiting_release", completedAt: new Date().toISOString() }));
+    if (latest.status !== "releasing" && latest.tasks.length > 0 && latest.tasks.every((task) => latest.results[task.id]?.status === "succeeded")) {
+      const gate = evaluateReleaseGate(latest.tasks, latest.results);
+      if (!gate.approved) {
+        await this.store.update(objectiveId, (current) => ({ ...current, status: "blocked", failure: gate.blockers.join(", ") }));
+        return;
+      }
+      const releaseTask = latest.tasks.find((task) => task.role === "release");
+      await this.sendRelease({
+        type: "publish_request",
+        objectiveId,
+        objective: latest.objective,
+        branch: latest.results[releaseTask.id].branch,
+        results: latest.results,
+      });
+      await this.store.update(objectiveId, (current) => ({ ...current, status: "releasing" }));
     }
   }
 }

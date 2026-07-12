@@ -8,10 +8,12 @@ import { log } from "./log.js";
 
 const config = loadConfig();
 const bus = createBus(config, config.controlQueue, config.agentQueue);
+const releaseSender = bus.client.createSender(config.releaseQueue);
 const control = new ControlPlane({
   store: new StateStore(config.stateDir),
   registry: await loadRegistry(config.registryPath),
   sendTask: (message) => sendMessage(bus.sender, message, `${message.objectiveId}:${message.task.id}:v1`, message.objectiveId),
+  sendRelease: (message) => sendMessage(releaseSender, message, `${message.objectiveId}:publish:v1`, message.objectiveId),
 });
 
 let shuttingDown = false;
@@ -21,6 +23,7 @@ const subscription = bus.receiver.subscribe({
       if (message.body?.type === "objective") await control.acceptObjective(message.body);
       else if (message.body?.type === "planning_result") await control.acceptPlanningResult(message.body);
       else if (message.body?.type === "result") await control.acceptTaskResult(message.body);
+      else if (message.body?.type === "release_result") await control.acceptReleaseResult(message.body);
       else throw new Error(`Unsupported control message type: ${message.body?.type}`);
       await bus.receiver.completeMessage(message);
     } catch (error) {
@@ -40,6 +43,7 @@ async function shutdown(signal) {
   await subscription.close();
   await bus.receiver.close();
   await bus.sender.close();
+  await releaseSender.close();
   await bus.client.close();
 }
 

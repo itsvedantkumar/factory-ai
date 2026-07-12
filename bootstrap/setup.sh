@@ -51,6 +51,7 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"
   printf 'CONTROL_QUEUE=control-events\n'
   printf 'AGENT_QUEUE=agent-tasks\n'
+  printf 'RELEASE_QUEUE=release-tasks\n'
   printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_WORKSPACE_DIR=/opt/agent-factory/workspaces\n'
@@ -66,6 +67,7 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
   printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"
   printf 'CONTROL_QUEUE=control-events\n'
   printf 'AGENT_QUEUE=agent-tasks\n'
+  printf 'RELEASE_QUEUE=release-tasks\n'
   printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
@@ -77,10 +79,12 @@ chown -R root:root "$APP_DIR"
 chmod -R go-w "$APP_DIR"
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-worker.service" /etc/systemd/system/agent-factory-worker.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-control.service" /etc/systemd/system/agent-factory-control.service
+install -m 0644 "$APP_DIR/bootstrap/agent-factory-release.service" /etc/systemd/system/agent-factory-release.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-reporter.service" /etc/systemd/system/agent-factory-reporter.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-reporter.timer" /etc/systemd/system/agent-factory-reporter.timer
 systemctl daemon-reload
 systemctl enable --now agent-factory-worker.service
 systemctl enable --now agent-factory-control.service
+systemctl enable --now agent-factory-release.service
 systemctl enable --now agent-factory-reporter.timer
 echo "Agent factory worker installed"

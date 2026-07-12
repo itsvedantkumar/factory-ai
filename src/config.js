@@ -5,6 +5,7 @@ const environmentSchema = z.object({
   SERVICE_BUS_NAMESPACE: z.string().min(3),
   CONTROL_QUEUE: z.string().min(1).default("control-events"),
   AGENT_QUEUE: z.string().min(1).default("agent-tasks"),
+  RELEASE_QUEUE: z.string().min(1).default("release-tasks"),
   KEY_VAULT_NAME: z.string().min(3),
   FACTORY_STATE_DIR: z.string().default("/opt/agent-factory/state"),
   FACTORY_WORKSPACE_DIR: z.string().default("/opt/agent-factory/workspaces"),
@@ -29,6 +30,7 @@ export function loadConfig(environment = process.env) {
       : `${env.SERVICE_BUS_NAMESPACE}.servicebus.windows.net`,
     controlQueue: env.CONTROL_QUEUE,
     agentQueue: env.AGENT_QUEUE,
+    releaseQueue: env.RELEASE_QUEUE,
     keyVaultUrl: `https://${env.KEY_VAULT_NAME}.vault.azure.net`,
     secretNames: {
       TEXTVED_AZURE_API_KEY: env.AZURE_PRIMARY_API_KEY_SECRET,

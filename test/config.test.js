@@ -7,11 +7,13 @@ test("requires separate control and agent queues", () => {
     SERVICE_BUS_NAMESPACE: "factory-bus",
     CONTROL_QUEUE: "control-events",
     AGENT_QUEUE: "agent-tasks",
+    RELEASE_QUEUE: "release-tasks",
     KEY_VAULT_NAME: "factory-vault",
   });
   assert.equal(config.controlQueue, "control-events");
   assert.equal(config.agentQueue, "agent-tasks");
   assert.notEqual(config.controlQueue, config.agentQueue);
+  assert.equal(config.releaseQueue, "release-tasks");
 });
 
 test("rejects a shared queue because control and execution must not compete", () => {

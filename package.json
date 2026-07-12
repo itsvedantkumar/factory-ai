@@ -11,6 +11,7 @@
     "agent-factory-control": "src/control-service.js",
     "agent-factory-dashboard": "src/dashboard.js",
     "agent-factory-reporter": "src/reporter.js",
+    "agent-factory-release": "src/release-service.js",
     "agent-factory-task": "src/task-entry.js",
     "agent-factory-worker": "src/worker.js"
   },
