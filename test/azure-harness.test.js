@@ -88,3 +88,20 @@ test("enforces a bounded number of model steps", async () => {
   });
   await assert.rejects(() => harness.run("Loop"), /step limit/);
 });
+
+test("returns tool failures to the model so it can recover", async () => {
+  const requests = [];
+  const harness = new AzureResponsesHarness({
+    baseUrl: "https://example.test/openai/v1",
+    apiKey: "not-a-real-key",
+    model: "gpt-test",
+    fetch: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      if (requests.length === 1) return response({ id: "r1", output: [{ type: "function_call", call_id: "c1", name: "test", arguments: "{}" }] });
+      return response({ id: "r2", output_text: "recovered", output: [] });
+    },
+    tools: { test: { description: "test", parameters: { type: "object" }, execute: async () => { throw new Error("tests failed"); } } },
+  });
+  assert.equal((await harness.run("fix tests")).text, "recovered");
+  assert.match(requests[1].input[0].output, /^ERROR: tests failed/);
+});

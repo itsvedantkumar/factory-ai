@@ -98,7 +98,12 @@ export class AzureResponsesHarness {
         } catch {
           throw new Error(`Invalid arguments for tool: ${call.name}`);
         }
-        const value = await tool.execute(argumentsValue);
+        let value;
+        try {
+          value = await tool.execute(argumentsValue);
+        } catch (error) {
+          value = `ERROR: ${String(error.message ?? error).slice(0, 4000)}`;
+        }
         outputs.push({
           type: "function_call_output",
           call_id: call.call_id,
