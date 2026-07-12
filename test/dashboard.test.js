@@ -29,6 +29,7 @@ const state = {
       branch: "factory/build",
       commit: "abc123",
       checks: ["npm test"],
+      telemetry: { model: "azureai-textved/gpt-5.5", durationMs: 1200, usage: { inputTokens: 100, cachedInputTokens: 40, outputTokens: 20 } },
     },
   },
 };
@@ -45,9 +46,10 @@ test("aggregates objective and task operator state", () => {
   assert.deepEqual(dashboard.summary.objectives, { running: 1 });
   assert.equal(dashboard.queue.deadLetter, 1);
   assert.equal(dashboard.worker.uptimeSeconds, 3780);
-  assert.equal(dashboard.objectives[0].tasks[0].model, "azureai-textved/gpt-5.6-sol");
+  assert.equal(dashboard.objectives[0].tasks[0].model, "azureai-textved/gpt-5.5");
   assert.equal(dashboard.objectives[0].tasks[1].state, "ready");
   assert.deepEqual(dashboard.objectives[0].checks, ["build-one: npm test"]);
+  assert.deepEqual(dashboard.modelUsage["azureai-textved/gpt-5.5"], { tasks: 1, inputTokens: 100, cachedInputTokens: 40, outputTokens: 20, durationMs: 1200 });
 });
 
 test("loads month-to-date Azure cost grouped by service", async () => {

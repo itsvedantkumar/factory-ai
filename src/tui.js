@@ -18,6 +18,7 @@ let capabilities;
 let secrets;
 let logs;
 let section = "Overview";
+let refreshing = false;
 
 function status(message, color = colors.muted) {
   footer.setContent(`  {${color}-fg}${message}{/}   {bold}n{/} new   {bold}r{/} refresh   {bold}q{/} quit`);
@@ -32,8 +33,12 @@ function badge(value) {
 function renderOverview() {
   const cost = dashboard?.cost ? `${dashboard.cost.currency} ${dashboard.cost.monthToDate.toFixed(2)}` : "unavailable";
   const counts = Object.entries(dashboard?.summary?.objectives ?? {}).map(([key, value]) => `${key} ${value}`).join("  ") || "none";
+  const modelUsage = Object.values(dashboard?.modelUsage ?? {});
+  const inputTokens = modelUsage.reduce((sum, item) => sum + item.inputTokens, 0);
+  const cachedTokens = modelUsage.reduce((sum, item) => sum + item.cachedInputTokens, 0);
+  const outputTokens = modelUsage.reduce((sum, item) => sum + item.outputTokens, 0);
   const recent = (dashboard?.objectives ?? []).slice(-8).reverse().map((objective) => `  ${badge(objective.status.padEnd(9))}  {bold}${objective.objective}{/}\n             ${objective.repository ?? ""}`).join("\n\n");
-  main.setContent(`{bold}System{/}\n\n  Queue      {#78dba9-fg}${dashboard?.queue?.active ?? 0}{/}\n  Dead letter ${dashboard?.queue?.deadLetter ?? 0}\n  Azure MTD  {#efc46b-fg}${cost}{/}\n  Objectives ${counts}\n\n{bold}Recent objectives{/}\n\n${recent || "  No objectives yet."}`);
+  main.setContent(`{bold}System{/}\n\n  Queue       {#78dba9-fg}${dashboard?.queue?.active ?? 0}{/}\n  Dead letter ${dashboard?.queue?.deadLetter ?? 0}\n  Azure MTD   {#efc46b-fg}${cost}{/}\n  Objectives  ${counts}\n  Tokens      ${inputTokens} in · ${cachedTokens} cached · ${outputTokens} out\n\n{bold}Recent objectives{/}\n\n${recent || "  No objectives yet."}`);
 }
 
 function renderObjectives() {
@@ -60,7 +65,7 @@ function renderCapabilities() {
 
 function renderSettings() {
   const config = operator.config();
-  main.setContent(`{bold}Runtime{/}\n\n  Resource group  ${config.resourceGroup}\n  VM              ${config.vm}\n  Service Bus     ${config.namespace}\n  Key Vault       ${config.vault}\n\n{bold}Model policy{/}\n\n  Scout           GPT-5.4 nano\n  Simple builder  Kimi K2.7-Code\n  Builder         GPT-5.6\n  Tester          GPT-5.4\n  Critical roles  GPT-5.6\n\n{#7f8b99-fg}Run factory setup to change providers or role routes.{/}`);
+  main.setContent(`{bold}Runtime{/}\n\n  Resource group  ${config.resourceGroup}\n  VM              ${config.vm}\n  Service Bus     ${config.namespace}\n  Key Vault       ${config.vault}\n\n{bold}Model policy{/}\n\n  Scout           GPT-5.4 nano\n  Simple builder  Kimi K2.7-Code\n  Builder         GPT-5.5\n  Tester          GPT-5.4\n  Critical roles  GPT-5.6\n\n{#7f8b99-fg}Run factory setup to change providers or role routes.{/}`);
 }
 
 function render() {
@@ -77,6 +82,8 @@ function render() {
 }
 
 async function refresh() {
+  if (refreshing) return;
+  refreshing = true;
   status("Refreshing...");
   try {
     dashboard = await operator.dashboard();
@@ -86,6 +93,7 @@ async function refresh() {
     render();
     status(`Updated ${new Date().toLocaleTimeString()}`);
   } catch (error) { status(error.message, colors.danger); }
+  finally { refreshing = false; }
 }
 
 function ask(label, { secret = false } = {}) {

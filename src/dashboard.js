@@ -123,6 +123,20 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
   });
   const summary = {};
   for (const objective of objectives) summary[objective.status ?? "unknown"] = (summary[objective.status ?? "unknown"] ?? 0) + 1;
+  const modelUsage = {};
+  for (const state of states) {
+    for (const result of Object.values(state.results ?? {})) {
+      const telemetry = result.telemetry;
+      if (!telemetry?.model) continue;
+      const current = modelUsage[telemetry.model] ?? { tasks: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, durationMs: 0 };
+      current.tasks += 1;
+      current.inputTokens += telemetry.usage?.inputTokens ?? 0;
+      current.cachedInputTokens += telemetry.usage?.cachedInputTokens ?? 0;
+      current.outputTokens += telemetry.usage?.outputTokens ?? 0;
+      current.durationMs += telemetry.durationMs ?? 0;
+      modelUsage[telemetry.model] = current;
+    }
+  }
   const startedAt = runtime.startedAt ? new Date(runtime.startedAt) : null;
   return {
     generatedAt: now.toISOString(),
@@ -133,6 +147,7 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
     queue: { active: queue.active ?? 0, deadLetter: queue.deadLetter ?? 0 },
     cost,
     summary: { objectives: summary },
+    modelUsage,
     objectives,
     warnings,
   };
@@ -150,6 +165,10 @@ export function renderDashboard(dashboard, { width = 100 } = {}) {
     `Objectives ${Object.entries(dashboard.summary.objectives).map(([state, count]) => `${state}:${count}`).join(" ") || "none"}`,
   ];
   if (dashboard.cost) lines.push(`Azure MTD ${dashboard.cost.currency} ${dashboard.cost.monthToDate.toFixed(2)} · billing data may be delayed`);
+  const totalInput = Object.values(dashboard.modelUsage ?? {}).reduce((sum, item) => sum + item.inputTokens, 0);
+  const totalCached = Object.values(dashboard.modelUsage ?? {}).reduce((sum, item) => sum + item.cachedInputTokens, 0);
+  const totalOutput = Object.values(dashboard.modelUsage ?? {}).reduce((sum, item) => sum + item.outputTokens, 0);
+  if (totalInput || totalOutput) lines.push(`Tokens input ${totalInput} · cached ${totalCached} · output ${totalOutput}`);
   for (const objective of dashboard.objectives) {
     lines.push("", `[${objective.status}] ${objective.id} ${objective.objective}`);
     for (const task of objective.tasks) lines.push(`  ${task.state.padEnd(9)} ${task.role.padEnd(9)} ${task.model} · ${task.title ?? task.id}`);

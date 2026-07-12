@@ -40,3 +40,14 @@ test("lists files with bounded output and excludes git internals", async () => {
   const files = JSON.parse(await tools.list_files.execute({ path: "." }));
   assert.deepEqual(files, ["a.txt"]);
 });
+
+test("reads large files in bounded line ranges", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-tools-"));
+  await writeFile(path.join(root, "large.txt"), Array.from({ length: 500 }, (_, index) => `line-${index + 1}`).join("\n"));
+  const tools = createWorkspaceTools(root);
+  const first = await tools.read_file.execute({ path: "large.txt" });
+  assert.match(first, /TRUNCATED: 100 more lines/);
+  const next = await tools.read_file.execute({ path: "large.txt", offsetLine: 401, limitLines: 100 });
+  assert.match(next, /^line-401/);
+  assert.match(next, /line-500$/);
+});

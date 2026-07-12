@@ -36,6 +36,16 @@ const taskResultSchema = z.object({
   checks: z.array(z.string().trim().min(1).max(1000)).max(50),
   risks: z.array(z.string().trim().min(1).max(1000)).max(50),
   approval: z.enum(["approved", "changes_requested", "not_applicable"]),
+  telemetry: z.object({
+    model: z.string().min(1).max(300),
+    steps: z.number().int().nonnegative(),
+    durationMs: z.number().int().nonnegative(),
+    usage: z.object({
+      inputTokens: z.number().int().nonnegative().default(0),
+      cachedInputTokens: z.number().int().nonnegative().default(0),
+      outputTokens: z.number().int().nonnegative().default(0),
+    }),
+  }).optional(),
 }).strict();
 
 export const workMessageSchema = z.object({

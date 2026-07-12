@@ -12,11 +12,13 @@ test("continues Bedrock Converse after executing an allowlisted tool", async () 
   const harness = new BedrockHarness({
     client,
     model: "model-id",
+    maxOutputTokens: 777,
     tools: { read_file: { description: "Read", parameters: { type: "object" }, execute: async ({ path }) => `content:${path}` } },
   });
   const result = await harness.run("Inspect");
   assert.equal(result.text, '{"summary":"done"}');
   assert.equal(result.steps, 2);
+  assert.equal(requests[0].inferenceConfig.maxTokens, 777);
   assert.equal(requests[1].messages[2].content[0].toolResult.toolUseId, "call-1");
   assert.equal(requests[1].messages[2].content[0].toolResult.content[0].text, "content:README.md");
 });

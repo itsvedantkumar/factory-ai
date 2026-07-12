@@ -47,17 +47,25 @@ export function createWorkspaceTools(rootInput, { execute = run } = {}) {
   const root = realpathSync(path.resolve(rootInput));
   return {
     read_file: {
-      description: "Read a UTF-8 file inside the assigned workspace.",
+      description: "Read a bounded UTF-8 line range inside the assigned workspace. Use offsetLine/limitLines instead of rereading large files.",
       parameters: {
         type: "object",
-        properties: { path: { type: "string" } },
+        properties: {
+          path: { type: "string" },
+          offsetLine: { type: "integer", minimum: 1 },
+          limitLines: { type: "integer", minimum: 1, maximum: 2000 },
+        },
         required: ["path"],
         additionalProperties: false,
       },
-      execute: async ({ path: requested }) => {
+      execute: async ({ path: requested, offsetLine = 1, limitLines = 400 }) => {
         const value = await readFile(await existingPath(root, requested), "utf8");
-        if (Buffer.byteLength(value) > 512_000) throw new Error("File exceeds 512000 bytes");
-        return value;
+        const lines = value.split("\n");
+        const start = offsetLine - 1;
+        let output = lines.slice(start, start + limitLines).join("\n");
+        if (start + limitLines < lines.length) output += `\n[TRUNCATED: ${lines.length - start - limitLines} more lines; request the next range]`;
+        if (Buffer.byteLength(output) > 256_000) output = `${output.slice(0, 256_000)}\n[TRUNCATED: byte limit]`;
+        return output;
       },
     },
     write_file: {
@@ -81,14 +89,14 @@ export function createWorkspaceTools(rootInput, { execute = run } = {}) {
       description: "List files recursively inside the assigned workspace.",
       parameters: {
         type: "object",
-        properties: { path: { type: "string" } },
+        properties: { path: { type: "string" }, limit: { type: "integer", minimum: 1, maximum: 2000 } },
         required: ["path"],
         additionalProperties: false,
       },
-      execute: async ({ path: requested }) => {
+      execute: async ({ path: requested, limit = 500 }) => {
         const directory = await existingPath(root, requested);
         const output = [];
-        await walk(directory, root, output, 2000);
+        await walk(directory, root, output, limit);
         return JSON.stringify(output);
       },
     },
@@ -110,11 +118,12 @@ export function createWorkspaceTools(rootInput, { execute = run } = {}) {
         const result = await execute(command, args, {
           cwd: root,
           timeoutMs: 900_000,
-          maxOutputBytes: 2_000_000,
+          maxOutputBytes: 500_000,
           inheritEnv: false,
           env: { PATH: process.env.PATH, HOME: "/tmp/agent-home", CI: "true", NO_COLOR: "1" },
         });
-        return `${result.stdout}${result.stderr ? `\nSTDERR:\n${result.stderr}` : ""}`.slice(-2_000_000);
+        const output = `${result.stdout}${result.stderr ? `\nSTDERR:\n${result.stderr}` : ""}`;
+        return output.length > 120_000 ? `[TRUNCATED: showing final 120000 characters]\n${output.slice(-120_000)}` : output;
       },
     },
   };

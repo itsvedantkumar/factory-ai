@@ -1,5 +1,6 @@
 function renderContent(result) {
-  return (result.content ?? []).map((item) => item.type === "text" ? item.text : JSON.stringify(item)).join("\n");
+  const value = (result.content ?? []).map((item) => item.type === "text" ? item.text : JSON.stringify(item)).join("\n");
+  return value.length > 32_000 ? `${value.slice(0, 32_000)}\n[TRUNCATED: request narrower MCP output]` : value;
 }
 
 async function defaultConnect(capability) {

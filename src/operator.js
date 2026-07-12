@@ -21,7 +21,16 @@ export function createOperator(environment = process.env) {
   const vm = environment.FACTORY_VM ?? "agent-factory-vm";
   const namespace = environment.FACTORY_SERVICE_BUS ?? "";
   const vault = environment.FACTORY_KEY_VAULT ?? "";
-  const remote = async (script) => extractRunCommand(await command("az", ["vm", "run-command", "invoke", "--resource-group", resourceGroup, "--name", vm, "--command-id", "RunShellScript", "--scripts", script, "--query", "value[0].message", "--output", "tsv"]));
+  const remote = async (script) => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try { return extractRunCommand(await command("az", ["vm", "run-command", "invoke", "--resource-group", resourceGroup, "--name", vm, "--command-id", "RunShellScript", "--scripts", script, "--query", "value[0].message", "--output", "tsv"])); }
+      catch (error) {
+        if (!error.message.includes("Conflict") || attempt === 5) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 10_000));
+      }
+    }
+    throw new Error("Azure Run Command remained busy");
+  };
   const withVault = async (operation) => {
     const ip = await command("curl", ["-fsS", "https://api.ipify.org"]);
     await command("az", ["keyvault", "network-rule", "add", "--name", vault, "--ip-address", `${ip}/32`, "--output", "none"]);
@@ -47,7 +56,7 @@ export function createOperator(environment = process.env) {
       return command(path.join(root, "bin/factory"), [action]);
     },
     capabilities: async () => JSON.parse(await readFile(path.join(root, "config/capabilities.json"), "utf8")),
-    config: () => ({ resourceGroup, vm, namespace, vault }),
+    config: () => ({ resourceGroup, vm, namespace, vault, models: { scout: "GPT-5.4 nano", simpleBuilder: "Kimi K2.7-Code", builder: "GPT-5.5", tester: "GPT-5.4", critical: "GPT-5.6" } }),
     listSecrets: async () => withVault(async () => JSON.parse(await command("az", ["keyvault", "secret", "list", "--vault-name", vault, "--query", "[].{name:name,updated:attributes.updated}", "--output", "json"]))),
     setSecret: async (name, value) => withVault(async () => {
       if (!/^[A-Za-z0-9-]{1,127}$/.test(name) || !value) throw new Error("Valid secret name and value are required");

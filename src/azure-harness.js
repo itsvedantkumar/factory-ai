@@ -27,6 +27,7 @@ export class AzureResponsesHarness {
     tools,
     fetch = globalThis.fetch,
     maxSteps = 40,
+    maxOutputTokens = 4096,
     retries = 4,
     timeoutMs = 180_000,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -37,6 +38,7 @@ export class AzureResponsesHarness {
     this.tools = tools;
     this.fetch = fetch;
     this.maxSteps = maxSteps;
+    this.maxOutputTokens = maxOutputTokens;
     this.retries = retries;
     this.timeoutMs = timeoutMs;
     this.sleep = sleep;
@@ -79,15 +81,20 @@ export class AzureResponsesHarness {
     let input = prompt;
     let previousResponseId;
     const definitions = toolDefinitions(this.tools);
+    const usage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
     for (let step = 0; step < this.maxSteps; step += 1) {
       const response = await this.request({
         model: this.model,
         input,
         ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
         tools: definitions,
+        max_output_tokens: this.maxOutputTokens,
       });
+      usage.inputTokens += response.usage?.input_tokens ?? 0;
+      usage.cachedInputTokens += response.usage?.input_tokens_details?.cached_tokens ?? 0;
+      usage.outputTokens += response.usage?.output_tokens ?? 0;
       const calls = (response.output ?? []).filter((item) => item.type === "function_call");
-      if (calls.length === 0) return { text: outputText(response), responseId: response.id, steps: step + 1 };
+      if (calls.length === 0) return { text: outputText(response), responseId: response.id, steps: step + 1, usage };
       const outputs = [];
       for (const call of calls) {
         const tool = this.tools[call.name];

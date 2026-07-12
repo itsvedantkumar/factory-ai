@@ -14,11 +14,13 @@ test("continues a response after executing an allowlisted function", async () =>
       id: "response-1",
       status: "completed",
       output: [{ type: "function_call", call_id: "call-1", name: "read_file", arguments: '{"path":"README.md"}' }],
+      usage: { input_tokens: 100, output_tokens: 10, input_tokens_details: { cached_tokens: 20 } },
     });
     return response({
       id: "response-2",
       status: "completed",
       output: [{ type: "message", content: [{ type: "output_text", text: '{"summary":"done"}' }] }],
+      usage: { input_tokens: 40, output_tokens: 5, input_tokens_details: { cached_tokens: 30 } },
     });
   };
   const harness = new AzureResponsesHarness({
@@ -26,13 +28,16 @@ test("continues a response after executing an allowlisted function", async () =>
     apiKey: "not-a-real-key",
     model: "gpt-test",
     fetch,
+    maxOutputTokens: 777,
     tools: { read_file: { description: "Read", parameters: { type: "object" }, execute: async ({ path }) => `content:${path}` } },
   });
 
   const result = await harness.run("Inspect the repository");
 
   assert.equal(result.text, '{"summary":"done"}');
+  assert.deepEqual(result.usage, { inputTokens: 140, cachedInputTokens: 50, outputTokens: 15 });
   assert.equal(requests[1].previous_response_id, "response-1");
+  assert.equal(requests[0].max_output_tokens, 777);
   assert.equal(Object.hasOwn(requests[0].tools[0], "strict"), false);
   assert.deepEqual(requests[1].input, [{ type: "function_call_output", call_id: "call-1", output: "content:README.md" }]);
 });

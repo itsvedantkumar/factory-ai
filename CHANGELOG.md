@@ -11,6 +11,15 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 - Azure and Bedrock provider wizard.
 - Durable evaluation, analytics, scaling, policy, extension, and recovery roadmap.
 
+## [1.1.0] - 2026-07-13
+
+### Added
+
+- GPT-5.5 as the benchmarked default implementation model, with Kimi retained for explicitly simple tasks.
+- Per-role step/output budgets and per-model input/cache/output token telemetry.
+- Cache-friendly prompt ordering and compact deterministic memory.
+- Bounded line-range reads, listings, command output, MCP output, and scanner evidence.
+
 ## [1.0.2] - 2026-07-13
 
 ### Fixed

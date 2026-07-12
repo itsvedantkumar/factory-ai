@@ -57,7 +57,7 @@ factory ui
 
   [running] Add authenticated health checks
     succeeded  scout     GPT-5.4 nano  · inspect conventions
-    running    builder   GPT-5.6       · implement contract
+    running    builder   GPT-5.5       · implement contract
     blocked    tester    GPT-5.4       · verify behavior
     blocked    reviewer  GPT-5.6       · review correctness
     blocked    security  GPT-5.6       · assess boundaries
@@ -115,11 +115,24 @@ Defaults are evidence-based and role-specific:
 | --- | --- | --- |
 | Scout | GPT-5.4 nano | Low-cost search and repository inspection |
 | Simple builder task | Kimi K2.7-Code | Economy coding path, independently reviewed |
-| Complex/unspecified builder task | GPT-5.6 | Fail-safe implementation default |
+| Complex/unspecified builder task | GPT-5.5 | Faster benchmarked implementation default |
 | Tester | GPT-5.4 | Independent behavioral verification |
 | Planner, debugger, reviewer, security, release | GPT-5.6 | Higher-judgment work |
 
 Any role can be overridden with an Azure deployment or `bedrock/MODEL_ID`. Bedrock uses the Converse tool API behind the same sandbox and approval gates.
+
+## Token and Cost Efficiency
+
+Factory AI minimizes tokens before relying on cheaper models:
+
+- GPT-5.4 nano scouts, Kimi handles explicitly simple coding, GPT-5.5 handles complex coding, and GPT-5.6 is reserved for high-judgment roles.
+- Stable guardrail/skill prompt prefixes improve provider prompt-cache reuse.
+- Every role has explicit step and output-token budgets.
+- File reads are line-ranged and bounded; listings, commands, MCP output, memory, and scanner evidence are truncated with continuation hints.
+- Read-only roles do not receive write-tool schemas.
+- Planner memory is compact, repository-scoped, and limited to recent verified events.
+- Dashboard and TUI track input, cached-input, and output tokens by model.
+- The planner is instructed to produce the smallest valid DAG, avoiding duplicate agents.
 
 ## Reliability
 

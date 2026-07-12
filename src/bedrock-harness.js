@@ -11,11 +11,12 @@ function definitions(tools) {
 }
 
 export class BedrockHarness {
-  constructor({ client, region = process.env.AWS_REGION ?? "us-east-1", model, tools, maxSteps = 40 }) {
+  constructor({ client, region = process.env.AWS_REGION ?? "us-east-1", model, tools, maxSteps = 40, maxOutputTokens = 4096 }) {
     this.client = client ?? new BedrockRuntimeClient({ region });
     this.model = model;
     this.tools = tools;
     this.maxSteps = maxSteps;
+    this.maxOutputTokens = maxOutputTokens;
   }
 
   async run(prompt) {
@@ -25,6 +26,7 @@ export class BedrockHarness {
       const response = await this.client.send(new ConverseCommand({
         modelId: this.model,
         messages,
+        inferenceConfig: { maxTokens: this.maxOutputTokens },
         ...(Object.keys(this.tools).length ? { toolConfig: { tools: definitions(this.tools) } } : {}),
       }));
       usage.inputTokens += response.usage?.inputTokens ?? 0;

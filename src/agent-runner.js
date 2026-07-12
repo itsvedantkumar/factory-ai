@@ -24,6 +24,15 @@ function endpointForRoute(route, role, environment) {
   return { baseUrl, apiKey, model };
 }
 
+function budgetFor(task) {
+  if (task.role === "scout") return { maxSteps: 14, maxOutputTokens: 1200 };
+  if (task.role === "builder" && task.complexity === "simple") return { maxSteps: 20, maxOutputTokens: 2400 };
+  if (task.role === "builder") return { maxSteps: 32, maxOutputTokens: 3200 };
+  if (task.role === "debugger") return { maxSteps: 36, maxOutputTokens: 3200 };
+  if (["tester", "reviewer", "security"].includes(task.role)) return { maxSteps: 22, maxOutputTokens: 1800 };
+  return { maxSteps: 22, maxOutputTokens: 2200 };
+}
+
 export class AzureAgentRunner {
   constructor(config, registry, {
     environment = process.env,
@@ -42,40 +51,56 @@ export class AzureAgentRunner {
       `ALLOWLISTED SKILL ${item.name}@${item.version}:\n${await readFile(item.path, "utf8")}`
     )));
     return [
-      `You are the isolated ${task.role} subagent for CEO objective: ${objective.objective}`,
-      task.instructions,
+      `You are a Factory AI isolated ${task.role} subagent.`,
       "Work only in the assigned repository. Never inspect credentials, push Git refs, deploy, or install global tools.",
       "Use tools for evidence. Make the smallest correct change and verify every completion claim.",
-      prompt,
-      ...skills,
       'Return only JSON: {"summary":"concise outcome","checks":["command/result"],"risks":["remaining risk"],"approval":"approved|changes_requested|not_applicable"}.',
+      ...skills,
+      `CEO objective: ${objective.objective}`,
+      task.instructions,
+      prompt,
     ].join("\n\n");
   }
 
   harness(task, directory, additionalTools = {}) {
     const role = task.role;
     const route = modelForTask(task, this.environment);
-    const tools = { ...createWorkspaceTools(directory), ...additionalTools };
-    const maxSteps = role === "scout" ? 20 : 40;
+    const workspaceTools = createWorkspaceTools(directory);
+    if (!["builder", "debugger"].includes(role)) delete workspaceTools.write_file;
+    const tools = { ...workspaceTools, ...additionalTools };
+    const budget = budgetFor(task);
     if (route.startsWith("bedrock/")) {
       return this.createBedrockHarness({
         region: this.environment.AWS_REGION ?? "us-east-1",
         model: route.slice("bedrock/".length),
         tools,
-        maxSteps,
+        ...budget,
       });
     }
-    return this.createHarness({ ...endpointForRoute(route, role, this.environment), tools, timeoutMs: this.config.timeoutMs, maxSteps });
+    return this.createHarness({ ...endpointForRoute(route, role, this.environment), tools, timeoutMs: this.config.timeoutMs, ...budget });
   }
 
   async invoke({ objective, task, directory, prompt }) {
     const capabilities = selectCapabilities(this.registry, task.role, task.capabilities);
     const mcp = await connectMcpTools(capabilities);
+    const started = Date.now();
     try {
       const response = await this.harness(task, directory, mcp.tools).run(
         await this.promptForTask(objective, task, prompt, capabilities),
       );
-      return parseJson(response.text);
+      return {
+        ...parseJson(response.text),
+        telemetry: {
+          model: modelForTask(task, this.environment),
+          steps: response.steps ?? 0,
+          durationMs: Date.now() - started,
+          usage: {
+            inputTokens: response.usage?.inputTokens ?? 0,
+            cachedInputTokens: response.usage?.cachedInputTokens ?? 0,
+            outputTokens: response.usage?.outputTokens ?? 0,
+          },
+        },
+      };
     } finally {
       await mcp.close();
     }
@@ -90,15 +115,16 @@ export class AzureAgentRunner {
       ...Object.entries(this.registry.skills ?? {}),
       ...Object.entries(this.registry.mcp ?? {}),
     ].map(([name, item]) => [name, { version: item.version, roles: item.roles }]));
-    const prompt = `You are a planner subagent. Decompose the objective into a small executable DAG.
-Objective: ${objective.objective}
-Verified prior project context: ${JSON.stringify(projectContext)}
+    const prompt = `You are a Factory AI planner subagent. Decompose objectives into the smallest executable DAG.
 Allowed roles: scout, builder, tester, debugger, reviewer, security, release.
 Allowed capabilities: ${JSON.stringify(registrySummary)}
 Include tester, reviewer, and security ancestors of exactly one terminal release task.
 Return only JSON: {"executiveIntent":"...","tasks":[{"id":"...","role":"...","title":"...","instructions":"...","dependsOn":[],"capabilities":[],"complexity":"simple|complex"}]}
 
-${plannerSkills.join("\n\n")}`;
+${plannerSkills.join("\n\n")}
+
+Objective: ${objective.objective}
+Verified prior project context: ${JSON.stringify(projectContext).slice(0, 12000)}`;
     const mcp = await connectMcpTools(plannerCapabilities);
     try {
       const response = await this.harness({ role: "planner", complexity: "complex" }, directory, mcp.tools).run(prompt);

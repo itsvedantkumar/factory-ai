@@ -26,9 +26,10 @@ const scanners = [
 
 function redact(value) {
   return String(value)
+    .replaceAll(/\u001b\[[0-9;]*m/g, "")
     .replaceAll(/((?:api[_-]?key|token|secret|password)\s*[=:]\s*)\S+/gi, "$1[REDACTED]")
     .replaceAll(/\b[A-Za-z0-9+/_=-]{48,}\b/g, "[REDACTED]")
-    .slice(-20_000);
+    .slice(-6000);
 }
 
 export class ScannerSuite {
