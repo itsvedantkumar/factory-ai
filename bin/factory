@@ -19,6 +19,7 @@ usage() {
     'Usage: factory <command>' \
     '  setup' \
     '  github status | connect ORG | transfer OWNER/REPO ORG' \
+    '  telegram status | configure | start | stop' \
     '  submit <owner/repo> <objective>' \
     '  issue <owner/repo> <number>' \
     '  ui' \
@@ -31,6 +32,29 @@ usage() {
 command=${1:-help}
 shift || true
 case "$command" in
+  telegram)
+    action=${1:-status}
+    case "$action" in
+      status) remote 'systemctl status agent-factory-telegram.service --no-pager -n 20' ;;
+      start) remote 'systemctl restart agent-factory-telegram.service; systemctl is-active agent-factory-telegram.service' ;;
+      stop) remote 'systemctl stop agent-factory-telegram.service' ;;
+      configure)
+        read -r -s -p 'Telegram bot token from @BotFather: ' telegram_token; printf '\n'
+        read -r -p 'Allowed Telegram chat IDs (comma-separated): ' telegram_chat_ids
+        [[ $telegram_chat_ids =~ ^-?[0-9]+(,-?[0-9]+)*$ ]] || { printf 'Invalid Telegram chat ID allowlist\n' >&2; exit 2; }
+        ip=$(curl -fsS https://api.ipify.org)
+        cleanup_telegram_vault() { az keyvault network-rule remove --name "$VAULT" --ip-address "$ip/32" --output none >/dev/null 2>&1 || true; }
+        trap cleanup_telegram_vault EXIT
+        az keyvault network-rule add --name "$VAULT" --ip-address "$ip/32" --output none
+        sleep 5
+        az keyvault secret set --vault-name "$VAULT" --name telegram-bot-token --value "$telegram_token" --output none
+        az keyvault secret set --vault-name "$VAULT" --name telegram-allowed-chat-ids --value "$telegram_chat_ids" --output none
+        unset telegram_token
+        remote 'systemctl restart agent-factory-telegram.service; systemctl is-active agent-factory-telegram.service'
+        ;;
+      *) printf 'Unknown telegram action: %s\n' "$action" >&2; exit 2 ;;
+    esac
+    ;;
   issue)
     repo=${1:?repository owner/name required}
     number=${2:?issue number required}
@@ -60,6 +84,7 @@ case "$command" in
     aws_region=$(jq -r .awsRegion "$choices")
     bedrock_builder=$(jq -r .bedrockBuilderModel "$choices")
     deploy_now=$(jq -r .deployNow "$choices")
+    telegram=$(jq -r .telegram "$choices")
     az account show --query '{subscription:name,state:state}' --output table
     gh auth status
     az group show --name "$RESOURCE_GROUP" --output none 2>/dev/null || az group create --name "$RESOURCE_GROUP" --location "$location" --output none
@@ -112,6 +137,14 @@ case "$command" in
       az keyvault secret set --vault-name "$vault" --name aws-secret-access-key --value "$aws_secret_key" --output none
       [[ -n $aws_session_token ]] && az keyvault secret set --vault-name "$vault" --name aws-session-token --value "$aws_session_token" --output none
       unset aws_access_key aws_secret_key aws_session_token
+    fi
+    if [[ $telegram == true ]]; then
+      read -r -s -p 'Telegram bot token from @BotFather: ' telegram_token; printf '\n'
+      read -r -p 'Allowed Telegram chat IDs (comma-separated): ' telegram_chat_ids
+      [[ $telegram_chat_ids =~ ^-?[0-9]+(,-?[0-9]+)*$ ]] || { printf 'Invalid Telegram chat ID allowlist\n' >&2; exit 2; }
+      az keyvault secret set --vault-name "$vault" --name telegram-bot-token --value "$telegram_token" --output none
+      az keyvault secret set --vault-name "$vault" --name telegram-allowed-chat-ids --value "$telegram_chat_ids" --output none
+      unset telegram_token
     fi
     printf 'Azure foundation and credential vault ready. Config: %s\n' "$CONFIG_FILE"
     if [[ $deploy_now == true ]]; then

@@ -8,7 +8,7 @@ import { GitHubRelease } from "./release.js";
 import { log } from "./log.js";
 
 const config = loadConfig();
-Object.assign(process.env, await loadRuntimeSecrets(config));
+Object.assign(process.env, await loadRuntimeSecrets(config, undefined, ["GH_TOKEN"]));
 await run("gh", ["auth", "setup-git"], { timeoutMs: 60_000 });
 const bus = createBus(config, config.releaseQueue, config.controlQueue);
 const bot = new ReleaseBot({

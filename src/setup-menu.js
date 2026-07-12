@@ -22,4 +22,5 @@ if (provider !== "azure") {
   bedrockBuilderModel = await input({ message: "Bedrock builder model ID", default: "us.anthropic.claude-sonnet-4-6-v1:0" });
 }
 const deployNow = await confirm({ message: "Deploy and start the runtime after storing credentials?", default: true });
-await writeFile(output, `${JSON.stringify({ provider, location, githubOrg, awsRegion, bedrockBuilderModel, deployNow })}\n`, { mode: 0o600 });
+const telegram = await confirm({ message: "Enable Telegram remote objective intake?", default: false });
+await writeFile(output, `${JSON.stringify({ provider, location, githubOrg, awsRegion, bedrockBuilderModel, deployNow, telegram })}\n`, { mode: 0o600 });

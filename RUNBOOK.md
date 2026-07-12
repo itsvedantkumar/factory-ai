@@ -11,6 +11,8 @@ bin/factory init /path/to/new-project
 bin/factory secret list
 bin/factory secret set SERVICE-NAME-API-KEY
 bin/factory secret copy SERVICE-NAME-API-KEY
+bin/factory telegram configure
+bin/factory telegram status
 bin/factory dashboard
 bin/factory queue
 bin/factory logs

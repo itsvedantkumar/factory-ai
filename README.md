@@ -69,6 +69,7 @@ factory ui
 | `factory ui` | Full-screen interactive admin console |
 | `factory submit OWNER/REPO "OBJECTIVE"` | Send one CEO objective |
 | `factory issue OWNER/REPO NUMBER` | Turn a GitHub issue into a tracked objective |
+| `factory telegram configure` | Configure allowlisted Telegram remote intake |
 | `factory dashboard` | Objectives, agents, models, queue, DLQ, and Azure cost |
 | `factory init PATH` | Create durable repo-local project context |
 | `factory doctor` | Services, storage, memory, and host health |
@@ -167,6 +168,26 @@ factory github transfer OWNER/REPO YOUR_ORG
 
 Organization rulesets can then enforce private-repo status checks, reviews, and auto-merge.
 
+## Telegram Remote Control
+
+Create a bot with `@BotFather`, obtain your numeric chat ID, then run:
+
+```bash
+factory telegram configure
+```
+
+Only explicitly allowlisted chat IDs are accepted. Supported commands:
+
+```text
+/submit OWNER/REPO objective
+/goal OWNER/REPO objective
+/loop OWNER/REPO objective
+/status
+/help
+```
+
+Telegram cannot run shell commands, read secrets, modify release policy, or bypass review gates. Durable update offsets prevent duplicate objectives after restarts.
+
 ## Security
 
 - No VM public IP or inbound network path
@@ -206,6 +227,10 @@ npm pack --dry-run
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and verification contract |
 | [HANDOFF.md](HANDOFF.md) | Team/friend transfer context |
 | [docs/COMPARISON.md](docs/COMPARISON.md) | Honest comparison with paid alternatives |
+| [ROADMAP.md](ROADMAP.md) | Planned platform and ecosystem work |
+| [GOVERNANCE.md](GOVERNANCE.md) | Decision and release governance |
+| [SUPPORT.md](SUPPORT.md) | Community support process |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Community standards |
 
 ## Current Limitations
 

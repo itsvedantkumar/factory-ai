@@ -56,7 +56,7 @@ for secret_name in "${GITHUB_TOKEN_SECRET:-github-token}"; do
   az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" --query id --output none
 done
 
-install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/home /opt/agent-factory/state/memory /opt/agent-factory/workspaces /opt/agent-factory/logs
+install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/home /opt/agent-factory/state/memory /opt/agent-factory/state/telegram /opt/agent-factory/workspaces /opt/agent-factory/logs
 install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
 {
   printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"
@@ -105,10 +105,12 @@ install -m 0644 "$APP_DIR/bootstrap/agent-factory-control.service" /etc/systemd/
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-release.service" /etc/systemd/system/agent-factory-release.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-reporter.service" /etc/systemd/system/agent-factory-reporter.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-reporter.timer" /etc/systemd/system/agent-factory-reporter.timer
+install -m 0644 "$APP_DIR/bootstrap/agent-factory-telegram.service" /etc/systemd/system/agent-factory-telegram.service
 systemctl daemon-reload
 systemctl enable --now agent-factory-worker.service
 systemctl enable --now agent-factory-control.service
 systemctl enable --now agent-factory-release.service
 systemctl enable --now agent-factory-reporter.timer
+systemctl enable --now agent-factory-telegram.service
 systemctl restart agent-factory-control.service agent-factory-worker.service agent-factory-release.service
 echo "Agent factory worker installed"

@@ -1,0 +1,31 @@
+[Unit]
+Description=Factory AI Telegram remote objective intake
+After=network-online.target agent-factory-control.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=factory
+Group=factory
+WorkingDirectory=/opt/agent-factory/app
+EnvironmentFile=/etc/agent-factory.env
+Environment=HOME=/opt/agent-factory/state/home
+ExecStart=/usr/bin/node /opt/agent-factory/app/src/telegram-service.js
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=40
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+ReadWritePaths=/opt/agent-factory/state/telegram
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

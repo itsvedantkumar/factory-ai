@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes follow semantic versioning and the Keep a Changelog structure.
+
+## [Unreleased]
+
+### Added
+
+- Full-screen terminal administration console.
+- Telegram remote objective intake with chat allowlisting.
+- Azure and Bedrock provider wizard.
+- Durable evaluation, analytics, scaling, policy, extension, and recovery roadmap.
+
+## [1.0.0] - 2026-07-12
+
+### Added
+
+- Deterministic CTO control plane and isolated role workers.
+- Azure Service Bus durability, retained memory/state, Key Vault, and cost dashboard.
+- GPT-5.4 nano, GPT-5.4, GPT-5.6, Kimi, and Bedrock routing.
+- Gated GitHub delivery, MCP/skills, project memory, CI, security scans, and one-command setup.

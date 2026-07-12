@@ -1,0 +1,28 @@
+name: Bug report
+description: Report reproducible incorrect behavior
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: Description
+      description: What happened and what should have happened?
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction
+      description: Provide minimal redacted steps and commands.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Version
+  - type: dropdown
+    attributes:
+      label: Provider
+      options: [Azure, Bedrock, Hybrid, Not applicable]
+  - type: textarea
+    attributes:
+      label: Redacted logs
+      description: Never include credentials or private source.

@@ -24,6 +24,8 @@ const environmentSchema = z.object({
   AWS_ACCESS_KEY_ID_SECRET: z.string().min(1).default("aws-access-key-id"),
   AWS_SECRET_ACCESS_KEY_SECRET: z.string().min(1).default("aws-secret-access-key"),
   AWS_SESSION_TOKEN_SECRET: z.string().min(1).default("aws-session-token"),
+  TELEGRAM_BOT_TOKEN_SECRET: z.string().min(1).default("telegram-bot-token"),
+  TELEGRAM_ALLOWED_CHAT_IDS_SECRET: z.string().min(1).default("telegram-allowed-chat-ids"),
 }).passthrough();
 
 export function loadConfig(environment = process.env) {
@@ -48,6 +50,8 @@ export function loadConfig(environment = process.env) {
       AWS_ACCESS_KEY_ID: env.AWS_ACCESS_KEY_ID_SECRET,
       AWS_SECRET_ACCESS_KEY: env.AWS_SECRET_ACCESS_KEY_SECRET,
       AWS_SESSION_TOKEN: env.AWS_SESSION_TOKEN_SECRET,
+      TELEGRAM_BOT_TOKEN: env.TELEGRAM_BOT_TOKEN_SECRET,
+      TELEGRAM_ALLOWED_CHAT_IDS: env.TELEGRAM_ALLOWED_CHAT_IDS_SECRET,
     },
     stateDir: path.resolve(env.FACTORY_STATE_DIR),
     memoryDir: path.resolve(env.FACTORY_STATE_DIR, "memory"),

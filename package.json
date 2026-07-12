@@ -16,6 +16,7 @@
     "agent-factory-reporter": "src/reporter.js",
     "agent-factory-release": "src/release-service.js",
     "agent-factory-task": "src/task-entry.js",
+    "factory-ai-telegram": "src/telegram-service.js",
     "agent-factory-worker": "src/worker.js"
   },
   "files": [

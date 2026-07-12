@@ -1,10 +1,12 @@
 import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
 
-export async function loadRuntimeSecrets(config, credential = new DefaultAzureCredential()) {
+export async function loadRuntimeSecrets(config, credential = new DefaultAzureCredential(), environmentNames = Object.keys(config.secretNames)) {
   const client = new SecretClient(config.keyVaultUrl, credential);
   const values = {};
-  for (const [environmentName, secretName] of Object.entries(config.secretNames)) {
+  for (const environmentName of environmentNames) {
+    const secretName = config.secretNames[environmentName];
+    if (!secretName) throw new Error(`Unknown runtime secret: ${environmentName}`);
     let secret;
     try { secret = await client.getSecret(secretName); } catch (error) {
       if (error.statusCode === 404 || error.code === "SecretNotFound") continue;
