@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 import { run } from "./process.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -30,7 +31,10 @@ export function createOperator(environment = process.env) {
     }
   };
   return {
-    dashboard: async () => JSON.parse(await remote("sudo -u factory env $(xargs < /etc/agent-factory-control.env) node /opt/agent-factory/app/src/dashboard.js --json")),
+    dashboard: async () => {
+      const encoded = await remote("sudo -u factory env $(xargs < /etc/agent-factory-control.env) node /opt/agent-factory/app/src/dashboard.js --json | gzip -c | base64 -w0");
+      return JSON.parse(gunzipSync(Buffer.from(encoded, "base64")).toString("utf8"));
+    },
     logs: async () => remote('journalctl -u agent-factory-control -u agent-factory-worker -u agent-factory-release --since "1 hour ago" --no-pager -n 300'),
     submit: async (repository, objective) => {
       if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || objective.trim().length < 3) throw new Error("Valid repository and objective are required");
