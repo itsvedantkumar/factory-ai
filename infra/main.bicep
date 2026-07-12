@@ -161,25 +161,6 @@ resource serviceBus 'Microsoft.ServiceBus/namespaces@2024-01-01' = {
   }
 }
 
-resource serviceBusNetworkRules 'Microsoft.ServiceBus/namespaces/networkRuleSets@2024-01-01' = {
-  parent: serviceBus
-  name: 'default'
-  properties: {
-    defaultAction: 'Deny'
-    publicNetworkAccess: 'Enabled'
-    trustedServiceAccessEnabled: true
-    ipRules: []
-    virtualNetworkRules: [
-      {
-        subnet: {
-          id: vnet.properties.subnets[0].id
-        }
-        ignoreMissingVnetServiceEndpoint: false
-      }
-    ]
-  }
-}
-
 resource queues 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = [for queueName in ['control-events', 'agent-tasks', 'release-tasks']: {
   parent: serviceBus
   name: queueName

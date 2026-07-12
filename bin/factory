@@ -4,6 +4,7 @@ set -euo pipefail
 RESOURCE_GROUP=${FACTORY_RESOURCE_GROUP:-rg-vedant-3569}
 VM=${FACTORY_VM:-agent-factory-vm}
 NAMESPACE=${FACTORY_SERVICE_BUS:-af-4jelq52xdxoty}
+VAULT=${FACTORY_KEY_VAULT:-af4jelq52xdxoty}
 
 remote() {
   az vm run-command invoke --resource-group "$RESOURCE_GROUP" --name "$VM" \
@@ -16,6 +17,7 @@ usage() {
     'Usage: factory <command>' \
     '  submit <owner/repo> <objective>' \
     '  init <local-project-path>' \
+    '  secret list | set NAME | copy NAME | delete NAME' \
     '  dashboard | status | queue | report | logs | doctor' \
     '  pause | resume'
 }
@@ -23,6 +25,37 @@ usage() {
 command=${1:-help}
 shift || true
 case "$command" in
+  secret)
+    action=${1:-list}
+    name=${2:-}
+    ip=$(curl -fsS https://api.ipify.org)
+    cleanup_vault_rule() { az keyvault network-rule remove --name "$VAULT" --ip-address "$ip/32" --output none >/dev/null 2>&1 || true; }
+    trap cleanup_vault_rule EXIT
+    az keyvault network-rule add --name "$VAULT" --ip-address "$ip/32" --output none
+    sleep 5
+    case "$action" in
+      list) az keyvault secret list --vault-name "$VAULT" --query '[].{name:name,updated:attributes.updated}' --output table ;;
+      set)
+        [[ $name =~ ^[A-Za-z0-9-]+$ ]] || { printf 'Valid secret name required\n' >&2; exit 2; }
+        read -r -s -p "Value for $name: " value
+        printf '\n'
+        az keyvault secret set --vault-name "$VAULT" --name "$name" --value "$value" --output none
+        unset value
+        printf 'Stored %s in Azure Key Vault.\n' "$name"
+        ;;
+      copy)
+        [[ $name =~ ^[A-Za-z0-9-]+$ ]] || { printf 'Valid secret name required\n' >&2; exit 2; }
+        az keyvault secret show --vault-name "$VAULT" --name "$name" --query value --output tsv | pbcopy
+        printf 'Copied %s to clipboard without printing it.\n' "$name"
+        ;;
+      delete)
+        [[ $name =~ ^[A-Za-z0-9-]+$ ]] || { printf 'Valid secret name required\n' >&2; exit 2; }
+        az keyvault secret delete --vault-name "$VAULT" --name "$name" --output none
+        printf 'Soft-deleted %s.\n' "$name"
+        ;;
+      *) printf 'Unknown secret action: %s\n' "$action" >&2; exit 2 ;;
+    esac
+    ;;
   init)
     target=${1:?local project path required}
     [[ -d $target ]] || { printf 'Project directory does not exist: %s\n' "$target" >&2; exit 2; }

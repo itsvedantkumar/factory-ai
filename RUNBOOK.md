@@ -5,6 +5,9 @@
 ```bash
 bin/factory submit OWNER/REPO "/loop ship the objective"
 bin/factory init /path/to/new-project
+bin/factory secret list
+bin/factory secret set SERVICE-NAME-API-KEY
+bin/factory secret copy SERVICE-NAME-API-KEY
 bin/factory dashboard
 bin/factory queue
 bin/factory logs
