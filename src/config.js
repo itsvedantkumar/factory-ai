@@ -3,7 +3,8 @@ import { z } from "zod";
 
 const environmentSchema = z.object({
   SERVICE_BUS_NAMESPACE: z.string().min(3),
-  SERVICE_BUS_QUEUE: z.string().min(1),
+  CONTROL_QUEUE: z.string().min(1).default("control-events"),
+  AGENT_QUEUE: z.string().min(1).default("agent-tasks"),
   KEY_VAULT_NAME: z.string().min(3),
   FACTORY_STATE_DIR: z.string().default("/opt/agent-factory/state"),
   FACTORY_WORKSPACE_DIR: z.string().default("/opt/agent-factory/workspaces"),
@@ -20,11 +21,13 @@ const environmentSchema = z.object({
 
 export function loadConfig(environment = process.env) {
   const env = environmentSchema.parse(environment);
+  if (env.CONTROL_QUEUE === env.AGENT_QUEUE) throw new Error("Control and agent queues must be different");
   return {
     serviceBusFqdn: env.SERVICE_BUS_NAMESPACE.includes(".")
       ? env.SERVICE_BUS_NAMESPACE
       : `${env.SERVICE_BUS_NAMESPACE}.servicebus.windows.net`,
-    queue: env.SERVICE_BUS_QUEUE,
+    controlQueue: env.CONTROL_QUEUE,
+    agentQueue: env.AGENT_QUEUE,
     keyVaultUrl: `https://${env.KEY_VAULT_NAME}.vault.azure.net`,
     secretNames: {
       TEXTVED_AZURE_API_KEY: env.AZURE_PRIMARY_API_KEY_SECRET,

@@ -8,6 +8,7 @@
   },
   "bin": {
     "agent-factory-ceo": "src/ceo.js",
+    "agent-factory-control": "src/control-service.js",
     "agent-factory-dashboard": "src/dashboard.js",
     "agent-factory-reporter": "src/reporter.js",
     "agent-factory-worker": "src/worker.js"

@@ -50,7 +50,7 @@ try {
     baseBranch: options.baseBranch,
     createdAt: new Date().toISOString(),
   });
-  const bus = createBus(config);
+  const bus = createBus(config, config.controlQueue, config.controlQueue);
   await sendMessage(bus.sender, objective, objective.id);
   await bus.sender.close();
   await bus.receiver.close();

@@ -1,10 +1,10 @@
 import { DefaultAzureCredential } from "@azure/identity";
 import { ServiceBusClient } from "@azure/service-bus";
 
-export function createBus(config) {
+export function createBus(config, receiveQueue, sendQueue) {
   const client = new ServiceBusClient(config.serviceBusFqdn, new DefaultAzureCredential());
-  const sender = client.createSender(config.queue);
-  const receiver = client.createReceiver(config.queue, { receiveMode: "peekLock" });
+  const sender = client.createSender(sendQueue);
+  const receiver = client.createReceiver(receiveQueue, { receiveMode: "peekLock" });
   return { client, sender, receiver };
 }
 

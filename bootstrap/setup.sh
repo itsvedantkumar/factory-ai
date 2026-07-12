@@ -48,7 +48,8 @@ install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/stat
 install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
 {
   printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"
-  printf 'SERVICE_BUS_QUEUE=%s\n' "$SERVICE_BUS_QUEUE"
+  printf 'CONTROL_QUEUE=control-events\n'
+  printf 'AGENT_QUEUE=agent-tasks\n'
   printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_WORKSPACE_DIR=/opt/agent-factory/workspaces\n'
@@ -58,13 +59,26 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'MAX_DELIVERY_COUNT=8\n'
 } > /etc/agent-factory.env
 
+install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
+{
+  printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"
+  printf 'CONTROL_QUEUE=control-events\n'
+  printf 'AGENT_QUEUE=agent-tasks\n'
+  printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
+  printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
+  printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
+  printf 'MAX_DELIVERY_COUNT=8\n'
+} > /etc/agent-factory-control.env
+
 chown -R "$FACTORY_USER:$FACTORY_USER" /opt/agent-factory/state /opt/agent-factory/workspaces /opt/agent-factory/logs
 chown -R root:root "$APP_DIR"
 chmod -R go-w "$APP_DIR"
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-worker.service" /etc/systemd/system/agent-factory-worker.service
+install -m 0644 "$APP_DIR/bootstrap/agent-factory-control.service" /etc/systemd/system/agent-factory-control.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-reporter.service" /etc/systemd/system/agent-factory-reporter.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-reporter.timer" /etc/systemd/system/agent-factory-reporter.timer
 systemctl daemon-reload
 systemctl enable --now agent-factory-worker.service
+systemctl enable --now agent-factory-control.service
 systemctl enable --now agent-factory-reporter.timer
 echo "Agent factory worker installed"

@@ -146,9 +146,9 @@ resource serviceBus 'Microsoft.ServiceBus/namespaces@2024-01-01' = {
   }
 }
 
-resource taskQueue 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
+resource queues 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = [for queueName in ['control-events', 'agent-tasks', 'release-tasks']: {
   parent: serviceBus
-  name: 'code-tasks'
+  name: queueName
   properties: {
     deadLetteringOnMessageExpiration: true
     defaultMessageTimeToLive: 'P14D'
@@ -157,7 +157,7 @@ resource taskQueue 'Microsoft.ServiceBus/namespaces/queues@2024-01-01' = {
     maxDeliveryCount: 8
     requiresDuplicateDetection: true
   }
-}
+}]
 
 resource vm 'Microsoft.Compute/virtualMachines@2024-11-01' = {
   name: '${prefix}-vm'
@@ -267,5 +267,7 @@ output privateIp string = nic.properties.ipConfigurations[0].properties.privateI
 output egressIp string = egressIp.properties.ipAddress
 output keyVaultName string = vault.name
 output serviceBusNamespace string = serviceBus.name
-output taskQueue string = taskQueue.name
+output controlQueue string = queues[0].name
+output agentQueue string = queues[1].name
+output releaseQueue string = queues[2].name
 output principalId string = vm.identity.principalId
