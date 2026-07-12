@@ -1,0 +1,70 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { parseObjective, parsePlan, parseResultMessage, parseTaskResult } from "../src/validation.js";
+
+test("accepts a bounded CEO objective", () => {
+  const value = parseObjective({
+    id: "01J0123456789ABCDEFGHJKMNPQ",
+    type: "objective",
+    objective: "Add an authenticated health endpoint",
+    repository: "https://github.com/example/service.git",
+    baseBranch: "main",
+  });
+  assert.equal(value.baseBranch, "main");
+});
+
+test("rejects unsafe repository schemes and extra fields", () => {
+  assert.throws(() => parseObjective({
+    id: "01J0123456789ABCDEFGHJKMNPQ",
+    type: "objective",
+    objective: "Do work",
+    repository: "file:///etc",
+    baseBranch: "main",
+    token: "secret",
+  }));
+  assert.throws(() => parseObjective({
+    id: "01J0123456789ABCDEFGHJKMNPQ",
+    type: "objective",
+    objective: "Do work",
+    repository: "https://example.com/owner/repository.git",
+    baseBranch: "main",
+  }), /github\.com/);
+});
+
+test("rejects malformed or oversized plans", () => {
+  assert.throws(() => parsePlan({ tasks: Array.from({ length: 33 }, (_, index) => ({
+    id: `task-${index}`,
+    role: "builder",
+    title: "Build",
+    instructions: "Implement it",
+    dependsOn: [],
+    capabilities: [],
+  })) }));
+});
+
+test("strictly validates bounded subagent results", () => {
+  assert.deepEqual(parseTaskResult({ summary: "Implemented", checks: ["npm test: pass"], risks: [], approval: "not_applicable" }), {
+    summary: "Implemented",
+    checks: ["npm test: pass"],
+    risks: [],
+    approval: "not_applicable",
+  });
+  assert.throws(() => parseTaskResult({ summary: "Implemented", checks: [], risks: [], approval: "approved", secret: "no" }));
+});
+
+test("strictly validates durable result messages", () => {
+  const message = {
+    type: "result",
+    objectiveId: "01J0123456789ABCDEFGHJKMNPQ",
+    taskId: "review00",
+    status: "succeeded",
+    summary: "Approved",
+    checks: ["npm test: pass"],
+    risks: [],
+    approval: "approved",
+    commit: "0123456789abcdef0123456789abcdef01234567",
+    branch: "agent-factory/objective/review00",
+  };
+  assert.equal(parseResultMessage(message).taskId, "review00");
+  assert.throws(() => parseResultMessage({ ...message, token: "not allowed" }));
+});

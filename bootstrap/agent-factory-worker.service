@@ -1,0 +1,39 @@
+[Unit]
+Description=Azure Agent Factory durable worker
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=factory
+Group=factory
+WorkingDirectory=/opt/agent-factory/app
+EnvironmentFile=/etc/agent-factory.env
+Environment=HOME=/opt/agent-factory/state/home
+Environment=XDG_CACHE_HOME=/opt/agent-factory/state/home/.cache
+Environment=XDG_CONFIG_HOME=/opt/agent-factory/state/home/.config
+ExecStart=/usr/bin/node /opt/agent-factory/app/src/worker.js
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+LockPersonality=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native
+SupplementaryGroups=docker
+ReadWritePaths=/opt/agent-factory/state /opt/agent-factory/workspaces /opt/agent-factory/logs
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

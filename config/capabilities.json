@@ -1,0 +1,100 @@
+{
+  "defaults": {
+    "scout": ["code-search", "token-efficiency", "context7", "github"],
+    "planner": ["token-efficiency"],
+    "builder": ["code-search", "test-driven-development", "verification-before-completion", "context7"],
+    "tester": ["test-discipline", "verification-before-completion"],
+    "debugger": ["code-search", "systematic-debugging", "verification-before-completion", "context7"],
+    "reviewer": ["secure-review", "verification-before-completion", "github"],
+    "security": ["secure-review", "dependency-security", "github"],
+    "release": ["release-checklist"]
+  },
+  "skills": {
+    "code-search": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/code-search.md",
+      "roles": ["scout", "builder", "debugger", "reviewer", "security"]
+    },
+    "test-discipline": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/test-discipline.md",
+      "roles": ["builder", "tester", "debugger"]
+    },
+    "secure-review": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/secure-review.md",
+      "roles": ["reviewer", "security"]
+    },
+    "release-checklist": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/release-checklist.md",
+      "roles": ["release"]
+    },
+    "systematic-debugging": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/systematic-debugging.md",
+      "roles": ["debugger"]
+    },
+    "test-driven-development": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/test-driven-development.md",
+      "roles": ["builder"]
+    },
+    "verification-before-completion": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/verification-before-completion.md",
+      "roles": ["builder", "tester", "debugger", "reviewer"]
+    },
+    "token-efficiency": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/token-efficiency.md",
+      "roles": ["scout", "planner", "builder", "tester", "debugger", "reviewer", "security", "release"]
+    },
+    "dependency-security": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/dependency-security.md",
+      "roles": ["security"]
+    },
+    "frontend-verification": {
+      "version": "1.0.0",
+      "path": "/opt/agent-factory/app/capabilities/frontend-verification.md",
+      "roles": ["builder", "tester", "debugger", "reviewer"]
+    }
+  },
+  "mcp": {
+    "github": {
+      "version": "0.12.3",
+      "command": [
+        "/usr/bin/docker",
+        "run",
+        "--rm",
+        "-i",
+        "-e",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "ghcr.io/github/github-mcp-server:v0.12.3",
+        "stdio",
+        "--read-only"
+      ],
+      "environment": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GH_TOKEN}"
+      },
+      "roles": ["scout", "reviewer", "security"]
+    },
+    "context7": {
+      "version": "3.2.3",
+      "command": [
+        "/opt/agent-factory/app/node_modules/.bin/context7-mcp"
+      ],
+      "roles": ["scout", "builder", "debugger"]
+    },
+    "playwright": {
+      "version": "0.0.78",
+      "command": [
+        "/opt/agent-factory/app/node_modules/.bin/playwright-mcp",
+        "--headless",
+        "--isolated"
+      ],
+      "roles": ["builder", "tester", "debugger", "reviewer"]
+    }
+  }
+}

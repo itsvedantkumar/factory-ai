@@ -1,0 +1,78 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - docker-compose-v2
+  - docker.io
+  - fail2ban
+  - git
+  - jq
+  - postgresql-client
+  - ripgrep
+  - sqlite3
+  - unattended-upgrades
+
+write_files:
+  - path: /etc/docker/daemon.json
+    permissions: '0644'
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "20m",
+          "max-file": "5"
+        },
+        "live-restore": true
+      }
+  - path: /etc/sysctl.d/99-agent-factory.conf
+    permissions: '0644'
+    content: |
+      fs.inotify.max_user_instances=1024
+      fs.inotify.max_user_watches=1048576
+      fs.file-max=2097152
+  - path: /etc/systemd/system/agent-factory-health.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Agent factory host health check
+      After=network-online.target docker.service
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/agent-factory-health
+  - path: /etc/systemd/system/agent-factory-health.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Run agent factory host health check
+
+      [Timer]
+      OnBootSec=5min
+      OnUnitActiveSec=5min
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+  - path: /usr/local/bin/agent-factory-health
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      test "$(systemctl is-active docker)" = active
+      test "$(df --output=pcent / | tail -1 | tr -dc '0-9')" -lt 90
+      test "$(awk '/MemAvailable/ {print $2}' /proc/meminfo)" -gt 1048576
+
+runcmd:
+  - [mkdir, -p, /opt/agent-factory/workspaces, /opt/agent-factory/state, /opt/agent-factory/logs]
+  - [chmod, '0750', /opt/agent-factory]
+  - [systemctl, enable, --now, docker]
+  - [systemctl, enable, --now, fail2ban]
+  - [systemctl, enable, --now, unattended-upgrades]
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, agent-factory-health.timer]
+  - [sysctl, --system]
+
+final_message: Agent factory base host ready after $UPTIME seconds
