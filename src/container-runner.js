@@ -25,7 +25,7 @@ export class ContainerAgentRunner {
   async executePacket(packet, directory) {
     const name = `agent-${packet.objective.id}-${packet.task?.id ?? "planner"}`.toLowerCase().replaceAll(/[^a-z0-9_.-]/g, "-").slice(0, 63);
     const args = [
-      "run", "--rm", "--name", name,
+      "run", "-i", "--rm", "--name", name,
       "--read-only",
       "--user", `${process.getuid()}:${process.getgid()}`,
       "--cap-drop", "ALL",

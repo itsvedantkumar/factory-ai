@@ -20,6 +20,7 @@ test("launches each task in a bounded hardened container without secrets in argu
   });
   const call = calls[0];
   assert.equal(call.command, "docker");
+  assert.ok(call.args.includes("-i"));
   assert.ok(call.args.includes("--read-only"));
   assert.ok(call.args.includes("no-new-privileges"));
   assert.ok(call.args.includes("--cap-drop"));
