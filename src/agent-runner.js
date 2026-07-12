@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { AzureResponsesHarness } from "./azure-harness.js";
 import { selectCapabilities } from "./capabilities.js";
-import { modelForRole } from "./routing.js";
+import { modelForTask } from "./routing.js";
 import { createWorkspaceTools } from "./workspace-tools.js";
 import { connectMcpTools } from "./mcp-tools.js";
 import { BedrockHarness } from "./bedrock-harness.js";
@@ -15,8 +15,7 @@ function parseJson(text) {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-function endpointForRole(role, environment) {
-  const route = modelForRole(role, environment);
+function endpointForRoute(route, role, environment) {
   const [provider, model] = route.split("/");
   const lightweight = provider === "azureai-responses";
   const baseUrl = lightweight ? environment.AZURE_OPENAI_BASE_URL : environment.TEXTVED_AZURE_BASE_URL;
@@ -53,8 +52,9 @@ export class AzureAgentRunner {
     ].join("\n\n");
   }
 
-  harness(role, directory, additionalTools = {}) {
-    const route = modelForRole(role, this.environment);
+  harness(task, directory, additionalTools = {}) {
+    const role = task.role;
+    const route = modelForTask(task, this.environment);
     const tools = { ...createWorkspaceTools(directory), ...additionalTools };
     const maxSteps = role === "scout" ? 20 : 40;
     if (route.startsWith("bedrock/")) {
@@ -65,14 +65,14 @@ export class AzureAgentRunner {
         maxSteps,
       });
     }
-    return this.createHarness({ ...endpointForRole(role, this.environment), tools, timeoutMs: this.config.timeoutMs, maxSteps });
+    return this.createHarness({ ...endpointForRoute(route, role, this.environment), tools, timeoutMs: this.config.timeoutMs, maxSteps });
   }
 
   async invoke({ objective, task, directory, prompt }) {
     const capabilities = selectCapabilities(this.registry, task.role, task.capabilities);
     const mcp = await connectMcpTools(capabilities);
     try {
-      const response = await this.harness(task.role, directory, mcp.tools).run(
+      const response = await this.harness(task, directory, mcp.tools).run(
         await this.promptForTask(objective, task, prompt, capabilities),
       );
       return parseJson(response.text);
@@ -96,12 +96,12 @@ Verified prior project context: ${JSON.stringify(projectContext)}
 Allowed roles: scout, builder, tester, debugger, reviewer, security, release.
 Allowed capabilities: ${JSON.stringify(registrySummary)}
 Include tester, reviewer, and security ancestors of exactly one terminal release task.
-Return only JSON: {"executiveIntent":"...","tasks":[{"id":"...","role":"...","title":"...","instructions":"...","dependsOn":[],"capabilities":[]}]}
+Return only JSON: {"executiveIntent":"...","tasks":[{"id":"...","role":"...","title":"...","instructions":"...","dependsOn":[],"capabilities":[],"complexity":"simple|complex"}]}
 
 ${plannerSkills.join("\n\n")}`;
     const mcp = await connectMcpTools(plannerCapabilities);
     try {
-      const response = await this.harness("planner", directory, mcp.tools).run(prompt);
+      const response = await this.harness({ role: "planner", complexity: "complex" }, directory, mcp.tools).run(prompt);
       return parseJson(response.text);
     } finally {
       await mcp.close();

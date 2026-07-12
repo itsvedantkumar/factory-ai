@@ -2,7 +2,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { modelForRole } from "./routing.js";
+import { modelForTask } from "./routing.js";
 import { DefaultAzureCredential } from "@azure/identity";
 import { ServiceBusAdministrationClient } from "@azure/service-bus";
 import { loadConfig } from "./config.js";
@@ -102,7 +102,7 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
       id: task.id,
       role: task.role,
       title: task.title,
-      model: modelForRole(task.role),
+      model: modelForTask(task),
       state: taskState(task, results),
       branch: results[task.id]?.branch,
       commit: results[task.id]?.commit,

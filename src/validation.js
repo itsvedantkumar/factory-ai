@@ -23,6 +23,7 @@ export const taskSchema = z.object({
   instructions: z.string().trim().min(3).max(20_000),
   dependsOn: z.array(identifier).max(16).default([]),
   capabilities: z.array(identifier).max(12).default([]),
+  complexity: z.enum(["simple", "complex"]).default("complex"),
 }).strict();
 
 const planSchema = z.object({

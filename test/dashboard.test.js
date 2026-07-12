@@ -45,7 +45,7 @@ test("aggregates objective and task operator state", () => {
   assert.deepEqual(dashboard.summary.objectives, { running: 1 });
   assert.equal(dashboard.queue.deadLetter, 1);
   assert.equal(dashboard.worker.uptimeSeconds, 3780);
-  assert.equal(dashboard.objectives[0].tasks[0].model, "azureai-textved/factory-kimi-k2-7-code");
+  assert.equal(dashboard.objectives[0].tasks[0].model, "azureai-textved/gpt-5.6-sol");
   assert.equal(dashboard.objectives[0].tasks[1].state, "ready");
   assert.deepEqual(dashboard.objectives[0].checks, ["build-one: npm test"]);
 });
