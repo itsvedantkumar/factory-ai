@@ -3,6 +3,7 @@ import { AzureResponsesHarness } from "./azure-harness.js";
 import { selectCapabilities } from "./capabilities.js";
 import { modelForRole } from "./routing.js";
 import { createWorkspaceTools } from "./workspace-tools.js";
+import { connectMcpTools } from "./mcp-tools.js";
 
 function parseJson(text) {
   const fenced = text.match(/```json\s*([\s\S]*?)```/i)?.[1];
@@ -32,8 +33,7 @@ export class AzureAgentRunner {
     this.createHarness = createHarness;
   }
 
-  async promptForTask(objective, task, prompt) {
-    const capabilities = selectCapabilities(this.registry, task.role, task.capabilities);
+  async promptForTask(objective, task, prompt, capabilities) {
     const skills = await Promise.all(capabilities.filter((item) => item.type === "skill").map(async (item) => (
       `ALLOWLISTED SKILL ${item.name}@${item.version}:\n${await readFile(item.path, "utf8")}`
     )));
@@ -48,18 +48,26 @@ export class AzureAgentRunner {
     ].join("\n\n");
   }
 
-  harness(role, directory) {
+  harness(role, directory, additionalTools = {}) {
     return this.createHarness({
       ...endpointForRole(role, this.environment),
-      tools: createWorkspaceTools(directory),
+      tools: { ...createWorkspaceTools(directory), ...additionalTools },
       timeoutMs: this.config.timeoutMs,
       maxSteps: role === "scout" ? 20 : 40,
     });
   }
 
   async invoke({ objective, task, directory, prompt }) {
-    const response = await this.harness(task.role, directory).run(await this.promptForTask(objective, task, prompt));
-    return parseJson(response.text);
+    const capabilities = selectCapabilities(this.registry, task.role, task.capabilities);
+    const mcp = await connectMcpTools(capabilities);
+    try {
+      const response = await this.harness(task.role, directory, mcp.tools).run(
+        await this.promptForTask(objective, task, prompt, capabilities),
+      );
+      return parseJson(response.text);
+    } finally {
+      await mcp.close();
+    }
   }
 
   async plan(objective, directory) {

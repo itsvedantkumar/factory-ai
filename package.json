@@ -23,6 +23,7 @@
     "@azure/identity": "4.13.1",
     "@azure/keyvault-secrets": "4.10.0",
     "@azure/service-bus": "7.9.5",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@playwright/mcp": "0.0.78",
     "@upstash/context7-mcp": "3.2.3",
     "zod": "3.25.76"

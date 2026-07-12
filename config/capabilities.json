@@ -1,12 +1,12 @@
 {
   "defaults": {
-    "scout": ["code-search", "token-efficiency", "context7", "github"],
+    "scout": ["code-search", "token-efficiency", "context7"],
     "planner": ["token-efficiency"],
     "builder": ["code-search", "test-driven-development", "verification-before-completion", "context7"],
     "tester": ["test-discipline", "verification-before-completion"],
     "debugger": ["code-search", "systematic-debugging", "verification-before-completion", "context7"],
-    "reviewer": ["secure-review", "verification-before-completion", "github"],
-    "security": ["secure-review", "dependency-security", "github"],
+    "reviewer": ["secure-review", "verification-before-completion"],
+    "security": ["secure-review", "dependency-security"],
     "release": ["release-checklist"]
   },
   "skills": {
@@ -62,24 +62,6 @@
     }
   },
   "mcp": {
-    "github": {
-      "version": "0.12.3",
-      "command": [
-        "/usr/bin/docker",
-        "run",
-        "--rm",
-        "-i",
-        "-e",
-        "GITHUB_PERSONAL_ACCESS_TOKEN",
-        "ghcr.io/github/github-mcp-server:v0.12.3",
-        "stdio",
-        "--read-only"
-      ],
-      "environment": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": "{env:GH_TOKEN}"
-      },
-      "roles": ["scout", "reviewer", "security"]
-    },
     "context7": {
       "version": "3.2.3",
       "command": [
