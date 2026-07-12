@@ -43,7 +43,7 @@ The arrow-key wizard handles the rest. A GitHub organization is not required; pe
 ```bash
 factory init ~/Projects/my-app
 factory submit MY_ORG/my-app "/goal ship authenticated health checks"
-factory dashboard
+factory ui
 ```
 
 ## Operator Experience
@@ -66,6 +66,7 @@ factory dashboard
 | Command | Purpose |
 | --- | --- |
 | `factory setup` | Interactive cloud/provider installation |
+| `factory ui` | Full-screen interactive admin console |
 | `factory submit OWNER/REPO "OBJECTIVE"` | Send one CEO objective |
 | `factory dashboard` | Objectives, agents, models, queue, DLQ, and Azure cost |
 | `factory init PATH` | Create durable repo-local project context |

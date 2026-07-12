@@ -20,6 +20,7 @@ usage() {
     '  setup' \
     '  github status | connect ORG | transfer OWNER/REPO ORG' \
     '  submit <owner/repo> <objective>' \
+    '  ui' \
     '  init <local-project-path>' \
     '  secret list | set NAME | copy NAME | delete NAME' \
     '  dashboard | status | queue | report | logs | doctor' \
@@ -29,6 +30,9 @@ usage() {
 command=${1:-help}
 shift || true
 case "$command" in
+  ui)
+    FACTORY_RESOURCE_GROUP="$RESOURCE_GROUP" FACTORY_VM="$VM" FACTORY_SERVICE_BUS="$NAMESPACE" FACTORY_KEY_VAULT="$VAULT" node "$(dirname "$0")/../src/tui.js"
+    ;;
   setup)
     for dependency in az gh jq curl ssh-keygen node; do command -v "$dependency" >/dev/null || { printf 'Missing dependency: %s\n' "$dependency" >&2; exit 1; }; done
     choices=$(mktemp)
