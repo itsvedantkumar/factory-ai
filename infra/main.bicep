@@ -212,6 +212,19 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-11-01' = {
         }
         deleteOption: 'Delete'
       }
+      dataDisks: [
+        {
+          lun: 0
+          createOption: 'Empty'
+          diskSizeGB: 128
+          caching: 'ReadWrite'
+          deleteOption: 'Detach'
+          managedDisk: {
+            storageAccountType: 'Premium_LRS'
+          }
+          name: '${prefix}-state'
+        }
+      ]
     }
     networkProfile: {
       networkInterfaces: [

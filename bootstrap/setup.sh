@@ -37,6 +37,19 @@ test -f "$APP_DIR/package-lock.json"
 npm ci --omit=dev --prefix "$APP_DIR"
 docker build --file "$APP_DIR/Dockerfile.worker" --tag "$FACTORY_WORKER_IMAGE" "$APP_DIR"
 
+STATE_DEVICE=/dev/disk/azure/scsi1/lun0
+if [[ -b $STATE_DEVICE ]]; then
+  systemctl stop agent-factory-control.service agent-factory-worker.service agent-factory-release.service 2>/dev/null || true
+  if ! blkid "$STATE_DEVICE" >/dev/null 2>&1; then mkfs.ext4 -L agent-factory-state "$STATE_DEVICE"; fi
+  install -d -m 0750 /mnt/agent-factory-state /opt/agent-factory/state
+  mountpoint -q /mnt/agent-factory-state || mount "$STATE_DEVICE" /mnt/agent-factory-state
+  rsync -a /opt/agent-factory/state/ /mnt/agent-factory-state/
+  umount /mnt/agent-factory-state
+  uuid=$(blkid -s UUID -o value "$STATE_DEVICE")
+  grep -q ' /opt/agent-factory/state ' /etc/fstab || printf 'UUID=%s /opt/agent-factory/state ext4 defaults,nofail 0 2\n' "$uuid" >> /etc/fstab
+  mountpoint -q /opt/agent-factory/state || mount /opt/agent-factory/state
+fi
+
 az login --identity --allow-no-subscriptions --output none
 for secret_name in \
   "${AZURE_PRIMARY_API_KEY_SECRET:-azure-primary-api-key}" \
