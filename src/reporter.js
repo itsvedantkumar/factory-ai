@@ -8,7 +8,7 @@ import { loadConfig } from "./config.js";
 function markdown(dashboard) {
   const objectives = Object.entries(dashboard.summary.objectives).map(([state, count]) => `${state}=${count}`).join(", ") || "none";
   const cost = dashboard.cost ? `\nAzure month-to-date: ${dashboard.cost.currency} ${dashboard.cost.monthToDate.toFixed(2)} (billing data may be delayed)\n` : "";
-  return `# Agent Factory Hourly Report\n\nGenerated: ${dashboard.generatedAt}\n\nQueue: ${dashboard.queue.active} active, ${dashboard.queue.deadLetter} dead-letter\n${cost}\nObjectives: ${objectives}\n`;
+  return `# Factory AI Hourly Report\n\nGenerated: ${dashboard.generatedAt}\n\nQueue: ${dashboard.queue.active} active, ${dashboard.queue.deadLetter} dead-letter\n${cost}\nObjectives: ${objectives}\n`;
 }
 
 async function atomicWrite(file, content) {

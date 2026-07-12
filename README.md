@@ -1,4 +1,4 @@
-# Agent Factory
+# Factory AI
 
 <div align="center">
 
@@ -6,16 +6,16 @@
 
 One CEO interface. A deterministic CTO. Isolated specialist agents. Reviewed pull requests.
 
-[![CI](https://github.com/itsvedantkumar/agent-factory/actions/workflows/ci.yml/badge.svg)](https://github.com/itsvedantkumar/agent-factory/actions/workflows/ci.yml)
+[![CI](https://github.com/itsvedantkumar/factory-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/itsvedantkumar/factory-ai/actions/workflows/ci.yml)
 [![Node 20](https://img.shields.io/badge/node-20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Azure](https://img.shields.io/badge/runtime-Azure-0078D4?logo=microsoftazure)](https://azure.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
 
-## Why Agent Factory?
+## Why Factory AI?
 
-Most coding-agent setups are interactive sessions pretending to be infrastructure. Agent Factory is an actual delivery system:
+Most coding-agent setups are interactive sessions pretending to be infrastructure. Factory AI is an actual delivery system:
 
 - Objectives survive terminal closures, model interruptions, VM reboots, and worker crashes.
 - The orchestrator cannot edit code, execute shell commands, access model credentials, or publish releases.
@@ -28,11 +28,11 @@ Most coding-agent setups are interactive sessions pretending to be infrastructur
 Requirements: Node.js 20, [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), [GitHub CLI](https://cli.github.com/), `az login`, and `gh auth login`.
 
 ```bash
-npm install -g github:itsvedantkumar/agent-factory
+npm install -g factory-ai
 factory setup
 ```
 
-The arrow-key wizard handles the rest:
+The arrow-key wizard handles the rest. A GitHub organization is not required; personal repositories work by default.
 
 1. Select Azure AI Foundry, AWS Bedrock, or hybrid routing.
 2. Select infrastructure region and optional GitHub Enterprise organization.
@@ -49,7 +49,7 @@ factory dashboard
 ## Operator Experience
 
 ```text
-╔═ AGENT FACTORY ═════════════════════════════════════════════╗
+╔═ FACTORY AI ════════════════════════════════════════════════╗
   Worker active · queue 0 · DLQ 0 · Azure MTD INR 16,068.56
   Objectives complete:12 running:2 failed:1
 
@@ -182,8 +182,8 @@ Read [SECURITY.md](SECURITY.md) before adding tools, providers, or permissions.
 ## Development
 
 ```bash
-git clone https://github.com/itsvedantkumar/agent-factory.git
-cd agent-factory
+git clone https://github.com/itsvedantkumar/factory-ai.git
+cd factory-ai
 npm ci
 npm run check
 npm run lint
@@ -209,7 +209,7 @@ npm pack --dry-run
 - Azure Cost Management data is authoritative but delayed.
 - Private-repo auto-merge requires an eligible GitHub Team/Enterprise organization policy.
 - Kimi is used only for explicitly simple coding tasks until broader evaluations justify expansion.
-- npm registry publication requires maintainer authentication; GitHub-based npm installation works now.
+- npm releases are verified and published with provenance through GitHub Actions.
 
 ## License
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Azure Agent Factory durable worker
+Description=Factory AI durable worker
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service

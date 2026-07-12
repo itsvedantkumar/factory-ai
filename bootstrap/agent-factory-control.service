@@ -1,5 +1,5 @@
 [Unit]
-Description=Azure Agent Factory capability-free control plane
+Description=Factory AI capability-free control plane
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300

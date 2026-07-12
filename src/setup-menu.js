@@ -14,7 +14,7 @@ const provider = await select({
   ],
 });
 const location = await input({ message: "Azure infrastructure region", default: "centralindia" });
-const githubOrg = await input({ message: "GitHub Enterprise organization (optional)", default: "" });
+const githubOrg = await input({ message: "GitHub Enterprise organization (optional; Enter for personal repos)", default: "" });
 let awsRegion = "us-east-1";
 let bedrockBuilderModel = "";
 if (provider !== "azure") {

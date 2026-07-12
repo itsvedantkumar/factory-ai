@@ -1,5 +1,5 @@
 [Unit]
-Description=Generate Agent Factory progress report hourly
+Description=Generate Factory AI progress report hourly
 
 [Timer]
 OnCalendar=hourly

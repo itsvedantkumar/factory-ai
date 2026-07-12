@@ -80,7 +80,7 @@ test("strictly validates durable result messages", () => {
     risks: [],
     approval: "approved",
     commit: "0123456789abcdef0123456789abcdef01234567",
-    branch: "agent-factory/objective/review00",
+    branch: "factory-ai/objective/review00",
   };
   assert.equal(parseResultMessage(message).taskId, "review00");
   assert.throws(() => parseResultMessage({ ...message, token: "not allowed" }));

@@ -86,7 +86,7 @@ test("renders narrow terminals safely and emits deterministic JSON", () => {
   const dashboard = aggregateDashboard({ states: [state], now: new Date("2026-07-12T10:03:00.000Z") });
   const rendered = renderDashboard(dashboard, { width: 40, color: false });
 
-  assert.match(rendered, /AGENT FACTORY/);
+  assert.match(rendered, /FACTORY AI/);
   assert.match(rendered, /builder/);
   assert.ok(rendered.split("\n").every((line) => line.length <= 40));
   assert.equal(stableStringify({ z: 1, a: { y: 2, b: 3 } }), '{"a":{"b":3,"y":2},"z":1}\n');

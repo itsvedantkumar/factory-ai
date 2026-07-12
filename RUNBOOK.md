@@ -23,7 +23,7 @@ bin/factory resume
 Fresh install:
 
 ```bash
-npm install -g github:itsvedantkumar/agent-factory
+npm install -g factory-ai
 factory setup
 ```
 

@@ -49,7 +49,7 @@ export class GitHubRelease {
       "",
       "Human review and repository branch protections remain authoritative.",
     ].join("\n");
-    const title = `[Agent Factory] ${task.title}`;
+    const title = `[Factory AI] ${task.title}`;
     const create = await this.execute("gh", [
       "pr", "create", "--base", objective.baseBranch, "--head", branch,
       "--title", title, "--body", body,

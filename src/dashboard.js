@@ -145,7 +145,7 @@ function clip(value, width) {
 
 export function renderDashboard(dashboard, { width = 100 } = {}) {
   const lines = [
-    "╔═ AGENT FACTORY ═╗",
+    "╔═ FACTORY AI ═╗",
     `Worker ${dashboard.worker.status} · uptime ${humanDuration(dashboard.worker.uptimeSeconds)} · queue ${dashboard.queue.active} · DLQ ${dashboard.queue.deadLetter}`,
     `Objectives ${Object.entries(dashboard.summary.objectives).map(([state, count]) => `${state}:${count}`).join(" ") || "none"}`,
   ];

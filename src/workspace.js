@@ -37,8 +37,8 @@ export class WorkspaceManager {
         timeoutMs: this.timeoutMs,
       });
       await rename(temporary, control);
-      await run("git", ["-C", control, "config", "user.name", "Agent Factory"]);
-      await run("git", ["-C", control, "config", "user.email", "agent-factory@localhost"]);
+      await run("git", ["-C", control, "config", "user.name", "Factory AI"]);
+      await run("git", ["-C", control, "config", "user.email", "factory-ai@localhost"]);
     }
     return control;
   }
@@ -48,10 +48,10 @@ export class WorkspaceManager {
     if (await exists(directory)) return directory;
     await mkdir(path.dirname(directory), { recursive: true, mode: 0o750 });
     const base = dependencyCommits[0] ?? `origin/${objective.baseBranch}`;
-    const branch = `agent-factory/${objective.id}/${task.id}`;
+    const branch = `factory-ai/${objective.id}/${task.id}`;
     await run("git", ["clone", objective.repository, directory], { timeoutMs: this.timeoutMs });
-    await run("git", ["-C", directory, "config", "user.name", "Agent Factory"]);
-    await run("git", ["-C", directory, "config", "user.email", "agent-factory@localhost"]);
+    await run("git", ["-C", directory, "config", "user.name", "Factory AI"]);
+    await run("git", ["-C", directory, "config", "user.email", "factory-ai@localhost"]);
     await run("git", ["-C", directory, "checkout", "-b", branch, base], { timeoutMs: this.timeoutMs });
     for (const commit of dependencyCommits.slice(1)) {
       await run("git", ["-C", directory, "merge", "--no-edit", commit], { timeoutMs: this.timeoutMs });
@@ -64,13 +64,13 @@ export class WorkspaceManager {
     await run("git", ["-C", directory, "add", "-A"]);
     const diff = await run("git", ["-C", directory, "diff", "--cached", "--quiet"], { allowExitCodes: [0, 1] });
     if (diff.code === 1) {
-      await run("git", ["-C", directory, "commit", "-m", `agent-factory(${task.role}): ${task.title}`], {
+      await run("git", ["-C", directory, "commit", "-m", `factory-ai(${task.role}): ${task.title}`], {
         timeoutMs: this.timeoutMs,
       });
     }
     const { stdout } = await run("git", ["-C", directory, "rev-parse", "HEAD"]);
     const commit = stdout.trim();
-    const branch = `agent-factory/${objective.id}/${task.id}`;
+    const branch = `factory-ai/${objective.id}/${task.id}`;
     await run("git", ["-C", directory, "push", "--set-upstream", "origin", branch], { timeoutMs: this.timeoutMs });
     return { commit, branch };
   }

@@ -15,7 +15,7 @@ remote() {
 
 usage() {
   printf '%s\n' \
-    'Agent Factory operator console' \
+    'Factory AI operator console' \
     'Usage: factory <command>' \
     '  setup' \
     '  github status | connect ORG | transfer OWNER/REPO ORG' \
@@ -95,8 +95,8 @@ case "$command" in
     fi
     printf 'Azure foundation and credential vault ready. Config: %s\n' "$CONFIG_FILE"
     if [[ $deploy_now == true ]]; then
-      source_ref=$(gh api repos/itsvedantkumar/agent-factory/commits/main --jq .sha)
-      parameters=(KEY_VAULT_NAME "$vault" SERVICE_BUS_NAMESPACE "$namespace" SERVICE_BUS_QUEUE code-tasks SOURCE_REPOSITORY itsvedantkumar/agent-factory SOURCE_REF "$source_ref")
+      source_ref=$(gh api repos/itsvedantkumar/factory-ai/commits/main --jq .sha)
+      parameters=(KEY_VAULT_NAME "$vault" SERVICE_BUS_NAMESPACE "$namespace" SERVICE_BUS_QUEUE code-tasks SOURCE_REPOSITORY itsvedantkumar/factory-ai SOURCE_REF "$source_ref")
       if [[ $provider == bedrock ]]; then
         parameters+=(AWS_REGION "$aws_region")
         for role in SCOUT PLANNER BUILDER TESTER DEBUGGER REVIEWER SECURITY RELEASE; do parameters+=("FACTORY_MODEL_$role" "bedrock/$bedrock_builder"); done

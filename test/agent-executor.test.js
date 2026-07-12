@@ -28,7 +28,7 @@ test("executes exactly one assigned task without reading orchestration state", a
   const executor = new AgentExecutor({
     workspaces: {
       prepareTask: async (...args) => { calls.push(["prepare", ...args]); return "/workspace/task"; },
-      checkpoint: async () => ({ commit: "0123456789abcdef0123456789abcdef01234567", branch: "agent-factory/objective1/build000" }),
+      checkpoint: async () => ({ commit: "0123456789abcdef0123456789abcdef01234567", branch: "factory-ai/objective1/build000" }),
     },
     agentRunner: {
       invoke: async (packet) => { calls.push(["invoke", packet]); return { summary: "built", checks: ["npm test"], risks: [], approval: "not_applicable" }; },

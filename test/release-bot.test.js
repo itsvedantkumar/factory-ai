@@ -13,7 +13,7 @@ test("publishes an approved branch and emits a durable release result", async ()
     type: "publish_request",
     objectiveId: "objective1",
     objective: { id: "objective1", repository: "https://github.com/acme/app.git", baseBranch: "main" },
-    branch: "agent-factory/objective1/release0",
+    branch: "factory-ai/objective1/release0",
     results: {},
   });
   assert.equal(emitted[0].type, "release_result");

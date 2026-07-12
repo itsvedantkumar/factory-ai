@@ -1,5 +1,5 @@
 [Unit]
-Description=Agent Factory hourly progress report
+Description=Factory AI hourly progress report
 After=agent-factory-worker.service
 
 [Service]

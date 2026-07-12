@@ -19,7 +19,7 @@ async function defaultConnect(capability) {
     },
     stderr: "pipe",
   });
-  const client = new Client({ name: "agent-factory", version: "1.0.0" });
+  const client = new Client({ name: "factory-ai", version: "1.0.0" });
   await client.connect(transport);
   return client;
 }
