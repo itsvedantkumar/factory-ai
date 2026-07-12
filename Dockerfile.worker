@@ -1,0 +1,19 @@
+FROM node:20.20.2-bookworm-slim
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ripgrep ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/agent-factory/app
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev \
+  && npx playwright install --with-deps chromium \
+  && chmod -R a+rX /ms-playwright \
+  && npm cache clean --force
+COPY src ./src
+COPY config ./config
+COPY capabilities ./capabilities
+
+USER node
+ENTRYPOINT ["node", "/opt/agent-factory/app/src/task-entry.js"]

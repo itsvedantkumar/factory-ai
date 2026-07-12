@@ -9,6 +9,7 @@ fi
 
 : "${KEY_VAULT_NAME:?Set KEY_VAULT_NAME to the existing vault name}"
 : "${SERVICE_BUS_NAMESPACE:?Set SERVICE_BUS_NAMESPACE to the existing namespace name}"
+: "${FACTORY_WORKER_IMAGE:?Set FACTORY_WORKER_IMAGE to an immutable image tag}"
 SERVICE_BUS_QUEUE=${SERVICE_BUS_QUEUE:-code-tasks}
 APP_DIR=${APP_DIR:-/opt/agent-factory/app}
 FACTORY_USER=${FACTORY_USER:-factory}
@@ -32,7 +33,7 @@ test "$(node --version | cut -d. -f1)" = "v20"
 id "$FACTORY_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin "$FACTORY_USER"
 test -f "$APP_DIR/package-lock.json"
 npm ci --omit=dev --prefix "$APP_DIR"
-npx --prefix "$APP_DIR" playwright install --with-deps chromium
+docker build --file "$APP_DIR/Dockerfile.worker" --tag "$FACTORY_WORKER_IMAGE" "$APP_DIR"
 
 az login --identity --allow-no-subscriptions --output none
 for secret_name in \
@@ -54,6 +55,7 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_WORKSPACE_DIR=/opt/agent-factory/workspaces\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
+  printf 'FACTORY_WORKER_IMAGE=%s\n' "$FACTORY_WORKER_IMAGE"
   printf 'MAX_CONCURRENCY=3\n'
   printf 'TASK_TIMEOUT_MS=1800000\n'
   printf 'MAX_DELIVERY_COUNT=8\n'

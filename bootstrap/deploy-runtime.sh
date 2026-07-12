@@ -52,4 +52,5 @@ rsync -a --delete --exclude .git "$temporary/source/" /opt/agent-factory/app/
 KEY_VAULT_NAME="$KEY_VAULT_NAME" \
 SERVICE_BUS_NAMESPACE="$SERVICE_BUS_NAMESPACE" \
 SERVICE_BUS_QUEUE="$SERVICE_BUS_QUEUE" \
+FACTORY_WORKER_IMAGE="agent-factory-worker:$SOURCE_REF" \
 bash /opt/agent-factory/app/bootstrap/setup.sh
