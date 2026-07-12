@@ -14,6 +14,8 @@ SERVICE_BUS_QUEUE=${SERVICE_BUS_QUEUE:-code-tasks}
 APP_DIR=${APP_DIR:-/opt/agent-factory/app}
 FACTORY_USER=${FACTORY_USER:-factory}
 
+chmod 0755 /opt/agent-factory "$APP_DIR"
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y ca-certificates curl gpg git jq
