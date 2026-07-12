@@ -68,6 +68,7 @@ factory ui
 | `factory setup` | Interactive cloud/provider installation |
 | `factory ui` | Full-screen interactive admin console |
 | `factory submit OWNER/REPO "OBJECTIVE"` | Send one CEO objective |
+| `factory issue OWNER/REPO NUMBER` | Turn a GitHub issue into a tracked objective |
 | `factory dashboard` | Objectives, agents, models, queue, DLQ, and Azure cost |
 | `factory init PATH` | Create durable repo-local project context |
 | `factory doctor` | Services, storage, memory, and host health |

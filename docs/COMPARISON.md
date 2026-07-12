@@ -13,7 +13,7 @@ This comparison is based on public product documentation, not vendor benchmark c
 | Global vault and local secret control | Azure Key Vault | Enterprise controls | Managed secrets | Managed environments | GitHub secrets |
 | Unified deterministic plus graph memory | Yes | Organization knowledge | Knowledge | Session/project context | Copilot Memory preview |
 | Actual infrastructure cost dashboard | Yes | Subscription usage | ACU usage | Credit usage | Actions and AI credits |
-| Browser admin UI and embedded IDE | In progress | Polished CLI/IDE integrations | Strong web IDE/browser/shell | Strong web task UI | Native GitHub UI |
+| Interactive administration | Full-screen TUI | Polished CLI/IDE integrations | Strong web IDE/browser/shell | Strong web task UI | Native GitHub UI |
 | Slack/Jira/Linear intake | Not built | Native integrations | Native integrations | Integrations vary | Native integrations |
 | Vendor support/compliance package | Self-operated | Enterprise/SOC 2 | Managed vendor | OpenAI enterprise | GitHub enterprise |
 | Plugin marketplace | Curated MCP/skills | Plugins/marketplace | Integrations | Skills/MCP | MCP/custom agents/skills |
@@ -29,12 +29,11 @@ This comparison is based on public product documentation, not vendor benchmark c
 
 ## Gaps to Close
 
-1. Local browser admin panel with live activity, configuration, vault, MCP, skills, logs, and costs.
-2. Embedded diff/file/log viewer and safe operator intervention.
-3. Slack, Teams, Jira, Linear, and GitHub Issue intake adapters.
-4. Evaluation suites measuring task success, review defects, latency, retries, and cost by model.
-5. Organization analytics: PR throughput, merge rate, escaped defects, and cost per accepted change.
-6. Signed plugin/skill bundles and a curated extension catalog.
-7. Optional managed control plane and commercial support for teams that do not want to operate Azure.
+1. Embedded diff/file viewer and safe operator intervention beyond the current logs/activity TUI.
+2. Slack, Teams, Jira, and Linear intake adapters. GitHub Issue intake is built in.
+3. Evaluation suites measuring task success, review defects, latency, retries, and cost by model.
+4. Organization analytics: PR throughput, merge rate, escaped defects, and cost per accepted change.
+5. Signed plugin/skill bundles and a curated extension catalog.
+6. Optional managed control plane and commercial support for teams that do not want to operate Azure.
 
 Factory AI should not claim universal superiority until these gaps and multi-repository evaluations are complete.
