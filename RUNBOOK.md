@@ -3,6 +3,9 @@
 ## Daily commands
 
 ```bash
+bin/factory setup
+bin/factory github status
+bin/factory github connect YOUR_ENTERPRISE_ORG
 bin/factory submit OWNER/REPO "/loop ship the objective"
 bin/factory init /path/to/new-project
 bin/factory secret list

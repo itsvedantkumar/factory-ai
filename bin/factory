@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+CONFIG_FILE=${FACTORY_CONFIG_FILE:-$HOME/.config/agent-factory/config}
+[[ -f $CONFIG_FILE ]] && source "$CONFIG_FILE"
 RESOURCE_GROUP=${FACTORY_RESOURCE_GROUP:-rg-vedant-3569}
 VM=${FACTORY_VM:-agent-factory-vm}
 NAMESPACE=${FACTORY_SERVICE_BUS:-af-4jelq52xdxoty}
@@ -15,6 +17,8 @@ usage() {
   printf '%s\n' \
     'Agent Factory operator console' \
     'Usage: factory <command>' \
+    '  setup' \
+    '  github status | connect ORG | transfer OWNER/REPO ORG' \
     '  submit <owner/repo> <objective>' \
     '  init <local-project-path>' \
     '  secret list | set NAME | copy NAME | delete NAME' \
@@ -25,6 +29,59 @@ usage() {
 command=${1:-help}
 shift || true
 case "$command" in
+  setup)
+    for dependency in az gh jq curl ssh-keygen; do command -v "$dependency" >/dev/null || { printf 'Missing dependency: %s\n' "$dependency" >&2; exit 1; }; done
+    az account show --query '{subscription:name,state:state}' --output table
+    gh auth status
+    location=${FACTORY_LOCATION:-centralindia}
+    az group show --name "$RESOURCE_GROUP" --output none 2>/dev/null || az group create --name "$RESOURCE_GROUP" --location "$location" --output none
+    key=${FACTORY_SSH_KEY:-$HOME/.ssh/agent-factory-azure}
+    [[ -f $key ]] || ssh-keygen -t ed25519 -f "$key" -N "" -C agent-factory-azure
+    operator=$(az ad signed-in-user show --query id --output tsv)
+    deployment=$(az deployment group create --name agent-factory-setup --resource-group "$RESOURCE_GROUP" --template-file "$(dirname "$0")/../infra/main.bicep" --parameters adminSshKey="$(< "$key.pub")" operatorObjectId="$operator" --output json)
+    vault=$(jq -r '.properties.outputs.keyVaultName.value' <<<"$deployment")
+    namespace=$(jq -r '.properties.outputs.serviceBusNamespace.value' <<<"$deployment")
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    {
+      printf 'FACTORY_RESOURCE_GROUP=%q\n' "$RESOURCE_GROUP"
+      printf 'FACTORY_VM=%q\n' agent-factory-vm
+      printf 'FACTORY_SERVICE_BUS=%q\n' "$namespace"
+      printf 'FACTORY_KEY_VAULT=%q\n' "$vault"
+    } > "$CONFIG_FILE"
+    chmod 0600 "$CONFIG_FILE"
+    printf 'Azure foundation ready. Config: %s\nNext: factory github status, then factory secret set for required model credentials.\n' "$CONFIG_FILE"
+    ;;
+  github)
+    action=${1:-status}
+    case "$action" in
+      status)
+        gh auth status
+        printf 'Organizations:\n'
+        gh api user/orgs --jq '.[].login'
+        ;;
+      connect)
+        org=${2:?Enterprise organization required}
+        gh api "orgs/$org" --jq '{login,plan:.plan.name}'
+        token=$(gh auth token)
+        ip=$(curl -fsS https://api.ipify.org)
+        cleanup_github_vault() { az keyvault network-rule remove --name "$VAULT" --ip-address "$ip/32" --output none >/dev/null 2>&1 || true; }
+        trap cleanup_github_vault EXIT
+        az keyvault network-rule add --name "$VAULT" --ip-address "$ip/32" --output none
+        sleep 5
+        az keyvault secret set --vault-name "$VAULT" --name github-token --value "$token" --output none
+        az keyvault secret set --vault-name "$VAULT" --name github-enterprise-org --value "$org" --output none
+        unset token
+        printf 'Connected organization %s. Restart release/worker services after credential changes.\n' "$org"
+        ;;
+      transfer)
+        repo=${2:?OWNER/REPO required}
+        org=${3:?Enterprise organization required}
+        gh api --method POST "repos/$repo/transfer" -f new_owner="$org" --silent
+        printf 'Transfer requested: %s -> %s. Update submit paths after GitHub completes it.\n' "$repo" "$org"
+        ;;
+      *) printf 'Unknown github action: %s\n' "$action" >&2; exit 2 ;;
+    esac
+    ;;
   secret)
     action=${1:-list}
     name=${2:-}

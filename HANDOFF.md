@@ -16,6 +16,8 @@ Infrastructure is reproducible from `infra/main.bicep`. Runtime is installed fro
 
 Global API keys belong in Key Vault, never repository `.env` files. Use `bin/factory secret` commands; temporary operator IP access is removed automatically after each command.
 
+For GitHub Enterprise Cloud, keep the `github.com` host. Run `bin/factory github connect ORG` with an organization-authorized `gh` session, then explicitly transfer repositories with `bin/factory github transfer OWNER/REPO ORG`.
+
 ## Known platform limitation
 
 GitHub refuses branch protection and auto-merge for private repositories on the current account plan. The factory therefore leaves approved PRs open. Upgrade the plan or use eligible repositories to enable policy-controlled auto-merge.

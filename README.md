@@ -15,9 +15,9 @@ Roles and routing:
 | builder | `azureai-textved/factory-kimi-k2-7-code` |
 | planner, debugger, reviewer, security, release | `azureai-textved/gpt-5.6-sol` |
 
-Each objective has durable JSON state in `/opt/agent-factory/state/<objective-id>`. Each task gets a branch and Git worktree under `/opt/agent-factory/workspaces/<objective-id>`. Agents commit milestone checkpoints; the trusted runtime periodically pushes only the explicit task-branch refspec and always pushes a final checkpoint. A release is withheld unless tester, reviewer, and security roles explicitly approve. The terminal release branch integrates their dependency commits, creates or updates the PR, waits for required checks, and enables GitHub auto-merge only when checks pass and repository policy allows auto-merge. It never pushes the base branch.
+Each objective has durable JSON state in `/opt/agent-factory/state/<objective-id>`. Each task gets a branch and self-contained Git clone under `/opt/agent-factory/workspaces/<objective-id>`. Agents commit milestone checkpoints; the trusted runtime periodically pushes only the explicit task-branch refspec and always pushes a final checkpoint. A release is withheld unless tester, reviewer, and security roles explicitly approve. The terminal release branch integrates their dependency commits, creates or updates the PR, waits for required checks, and enables GitHub auto-merge only when checks pass and repository policy allows auto-merge. It never pushes the base branch.
 
-Capabilities are selected per task from `config/capabilities.json`. Entries require a semantic version, role allowlist, and absolute local skill path or MCP executable. The only MCP definition is a pinned, read-only GitHub MCP container. Agents cannot run `gh`, push Git refs, add MCP definitions, or install global tools; trusted runtime code performs branch pushes and releases.
+Capabilities are selected per task from `config/capabilities.json`. Entries require a version, role allowlist, and absolute local skill path or MCP executable. Context7, Playwright, and official knowledge-graph memory MCPs are pinned and role-scoped. Agents cannot run `gh`, push Git refs, add MCP definitions, or install global tools; trusted runtime code performs branch pushes and releases.
 
 ## Security model
 
@@ -37,6 +37,15 @@ Default VM: `Standard_D8as_v5`, 8 vCPUs, 32 GB RAM, 256 GB Premium SSD.
 The runtime enforces a maximum of three concurrent handlers.
 
 ## VM Bootstrap
+
+For a fresh subscription or friend handoff:
+
+```bash
+git clone https://github.com/itsvedantkumar/agent-factory.git
+cd agent-factory
+bin/factory setup
+bin/factory github status
+```
 
 The setup script expects this repository to be staged at `/opt/agent-factory/app`. It verifies Key Vault access with the VM managed identity. On every worker start, the Node SDK retrieves secrets into process memory; secret values are never written to the service environment file or command output. Existing Key Vault secret names default to:
 
@@ -129,10 +138,12 @@ az deployment group create --resource-group '<resource-group>' --template-file i
 
 Azure charges accrue for the `Standard_D8as_v5` VM and Premium SSD while allocated, plus NAT Gateway hourly/data processing, Standard Service Bus operations, Key Vault operations, outbound bandwidth, Azure OpenAI tokens, and any GitHub plan usage. Model tokens usually dominate variable workload cost. Set Azure budgets and alerts, monitor token and queue metrics, and deallocate the VM only when queued work is drained; deallocation stops compute charges but also stops processing.
 
+`bin/factory dashboard` and hourly reports show actual Azure resource-group month-to-date cost. Cost Management data can be delayed.
+
 ## Operational Limits
 
 - `--wait` polls VM-local state; there is no external result API.
-- Filesystem state and workspaces rely on the VM OS disk. Back up or move them to durable shared storage before replacing the VM.
+- Objective state and unified memory live on a retained Premium data disk. Task workspaces remain disposable and GitHub is their durable checkpoint.
 - Concurrent branches are merged only when a downstream task starts. Merge conflicts retry and ultimately dead-letter for operator intervention.
 - A PR requires the Key Vault GitHub token to have repository push and pull-request permissions.
 - The GitHub token should be a fine-grained token restricted to intended repositories; branch protection and required GitHub reviews remain the final authority.
