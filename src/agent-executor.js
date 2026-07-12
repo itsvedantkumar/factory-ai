@@ -15,7 +15,7 @@ export class AgentExecutor {
 
   async processPlanning(message) {
     const directory = await this.workspaces.ensureObjective(message.objective);
-    const delivery = await this.agentRunner.plan(message.objective, directory);
+    const delivery = await this.agentRunner.plan(message.objective, directory, message.context ?? []);
     await this.sendControl({ type: "planning_result", objectiveId: message.objectiveId, delivery });
   }
 

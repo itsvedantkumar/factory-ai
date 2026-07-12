@@ -4,8 +4,9 @@ import { selectCapabilities } from "./capabilities.js";
 import { evaluateReleaseGate } from "./release-gate.js";
 
 export class ControlPlane {
-  constructor({ store, registry, sendTask, sendRelease = async () => { throw new Error("Release sender is unavailable"); } }) {
+  constructor({ store, memory, registry, sendTask, sendRelease = async () => { throw new Error("Release sender is unavailable"); } }) {
     this.store = store;
+    this.memory = memory;
     this.registry = registry;
     this.sendTask = sendTask;
     this.sendRelease = sendRelease;
@@ -26,10 +27,12 @@ export class ControlPlane {
       results: {},
       createdAt: new Date().toISOString(),
     });
+    const context = this.memory ? await this.memory.context(objective.repository) : [];
     await this.sendTask({
       type: "planning_task",
       objectiveId: objective.id,
       objective,
+      context,
       task: {
         id: "planner0",
         role: "planner",
@@ -79,6 +82,16 @@ export class ControlPlane {
       blockers: value.release.blockers ?? [],
       autoMergeEnabled: value.release.autoMergeEnabled ?? false,
       completedAt: state.completedAt,
+    });
+    if (this.memory) await this.memory.append({
+      type: "objective-completed",
+      objectiveId: value.objectiveId,
+      repository: state.objective.repository,
+      objective: state.objective.objective,
+      executiveIntent: state.executiveIntent,
+      pullRequest: value.release.url,
+      checks: value.release.checks ?? [],
+      blockers: value.release.blockers ?? [],
     });
   }
 

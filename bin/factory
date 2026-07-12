@@ -90,7 +90,7 @@ case "$command" in
     remote 'journalctl -u agent-factory-control -u agent-factory-worker -u agent-factory-release --since "1 hour ago" --no-pager -n 250'
     ;;
   doctor)
-    remote 'systemctl is-active agent-factory-control agent-factory-worker agent-factory-release; systemctl is-enabled agent-factory-reporter.timer; docker ps --format "{{.Names}} {{.Status}}"; df -h /opt/agent-factory; free -h'
+    remote 'systemctl is-active agent-factory-control agent-factory-worker agent-factory-release; systemctl is-enabled agent-factory-reporter.timer; docker ps --format "{{.Names}} {{.Status}}"; findmnt /opt/agent-factory/state; df -h /opt/agent-factory/state; free -h'
     ;;
   pause)
     remote 'systemctl stop agent-factory-worker agent-factory-release'

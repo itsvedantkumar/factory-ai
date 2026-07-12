@@ -70,7 +70,7 @@ export class AzureAgentRunner {
     }
   }
 
-  async plan(objective, directory) {
+  async plan(objective, directory, projectContext = []) {
     const plannerCapabilities = selectCapabilities(this.registry, "planner", []);
     const plannerSkills = await Promise.all(plannerCapabilities.filter((item) => item.type === "skill").map(async (item) => (
       `PLANNER SKILL ${item.name}@${item.version}:\n${await readFile(item.path, "utf8")}`
@@ -81,6 +81,7 @@ export class AzureAgentRunner {
     ].map(([name, item]) => [name, { version: item.version, roles: item.roles }]));
     const prompt = `You are a planner subagent. Decompose the objective into a small executable DAG.
 Objective: ${objective.objective}
+Verified prior project context: ${JSON.stringify(projectContext)}
 Allowed roles: scout, builder, tester, debugger, reviewer, security, release.
 Allowed capabilities: ${JSON.stringify(registrySummary)}
 Include tester, reviewer, and security ancestors of exactly one terminal release task.
