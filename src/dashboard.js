@@ -18,6 +18,41 @@ export async function loadQueueMetrics(config, {
   };
 }
 
+export async function loadAzureCost(config, { credential = new DefaultAzureCredential(), fetch = globalThis.fetch } = {}) {
+  if (!config.subscriptionId || !config.resourceGroup) return null;
+  const access = await credential.getToken("https://management.azure.com/.default");
+  const scope = `/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}`;
+  const response = await fetch(`https://management.azure.com${scope}/providers/Microsoft.CostManagement/query?api-version=2025-03-01`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${access.token}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      type: "ActualCost",
+      timeframe: "MonthToDate",
+      dataset: {
+        granularity: "None",
+        aggregation: { totalCost: { name: "Cost", function: "Sum" } },
+        grouping: [{ type: "Dimension", name: "ResourceType" }],
+      },
+    }),
+  });
+  if (!response.ok) throw new Error(`Azure Cost Management HTTP ${response.status}`);
+  const result = await response.json();
+  const columns = result.properties?.columns?.map((column) => column.name) ?? [];
+  const costIndex = columns.indexOf("Cost");
+  const serviceIndex = columns.indexOf("ResourceType");
+  const currencyIndex = columns.indexOf("Currency");
+  const byService = {};
+  let monthToDate = 0;
+  let currency = "USD";
+  for (const row of result.properties?.rows ?? []) {
+    const amount = Number(row[costIndex] ?? 0);
+    monthToDate += amount;
+    byService[row[serviceIndex] ?? "Other"] = amount;
+    currency = row[currencyIndex] ?? currency;
+  }
+  return { monthToDate, currency, byService };
+}
+
 export function humanDuration(seconds) {
   const value = Math.max(0, Math.floor(seconds ?? 0));
   if (value >= 3600) return `${Math.floor(value / 3600)}h ${Math.floor((value % 3600) / 60)}m`;
@@ -60,7 +95,7 @@ function taskState(task, results) {
   return task.dependsOn.every((id) => results[id]?.status === "succeeded") ? "ready" : "blocked";
 }
 
-export function aggregateDashboard({ states = [], queue = {}, runtime = {}, hostUptimeSeconds = 0, warnings = [], now = new Date() }) {
+export function aggregateDashboard({ states = [], queue = {}, cost = null, runtime = {}, hostUptimeSeconds = 0, warnings = [], now = new Date() }) {
   const objectives = states.map((state) => {
     const results = state.results ?? {};
     const tasks = (state.tasks ?? []).map((task) => ({
@@ -96,6 +131,7 @@ export function aggregateDashboard({ states = [], queue = {}, runtime = {}, host
       uptimeSeconds: startedAt ? Math.max(0, (now.getTime() - startedAt.getTime()) / 1000) : hostUptimeSeconds,
     },
     queue: { active: queue.active ?? 0, deadLetter: queue.deadLetter ?? 0 },
+    cost,
     summary: { objectives: summary },
     objectives,
     warnings,
@@ -113,6 +149,7 @@ export function renderDashboard(dashboard, { width = 100 } = {}) {
     `Worker ${dashboard.worker.status} · uptime ${humanDuration(dashboard.worker.uptimeSeconds)} · queue ${dashboard.queue.active} · DLQ ${dashboard.queue.deadLetter}`,
     `Objectives ${Object.entries(dashboard.summary.objectives).map(([state, count]) => `${state}:${count}`).join(" ") || "none"}`,
   ];
+  if (dashboard.cost) lines.push(`Azure MTD ${dashboard.cost.currency} ${dashboard.cost.monthToDate.toFixed(2)} · billing data may be delayed`);
   for (const objective of dashboard.objectives) {
     lines.push("", `[${objective.status}] ${objective.id} ${objective.objective}`);
     for (const task of objective.tasks) lines.push(`  ${task.state.padEnd(9)} ${task.role.padEnd(9)} ${task.model} · ${task.title ?? task.id}`);
@@ -128,8 +165,12 @@ async function main() {
   const json = process.argv.includes("--json");
   const loaded = await loadLocalState(root);
   let queue = {};
+  let cost = null;
   if (process.env.SERVICE_BUS_NAMESPACE) queue = await loadQueueMetrics(loadConfig());
-  const dashboard = aggregateDashboard({ ...loaded, queue, runtime: { status: "running" } });
+  if (process.env.AZURE_SUBSCRIPTION_ID) {
+    try { cost = await loadAzureCost(loadConfig()); } catch (error) { loaded.warnings.push(`Cost unavailable: ${error.message}`); }
+  }
+  const dashboard = aggregateDashboard({ ...loaded, queue, cost, runtime: { status: "running" } });
   process.stdout.write(json ? stableStringify(dashboard) : `${renderDashboard(dashboard, { width: process.stdout.columns ?? 100 })}\n`);
 }
 

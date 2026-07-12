@@ -2,12 +2,13 @@
 import { mkdir, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { aggregateDashboard, loadLocalState, loadQueueMetrics, stableStringify } from "./dashboard.js";
+import { aggregateDashboard, loadAzureCost, loadLocalState, loadQueueMetrics, stableStringify } from "./dashboard.js";
 import { loadConfig } from "./config.js";
 
 function markdown(dashboard) {
   const objectives = Object.entries(dashboard.summary.objectives).map(([state, count]) => `${state}=${count}`).join(", ") || "none";
-  return `# Agent Factory Hourly Report\n\nGenerated: ${dashboard.generatedAt}\n\nQueue: ${dashboard.queue.active} active, ${dashboard.queue.deadLetter} dead-letter\n\nObjectives: ${objectives}\n`;
+  const cost = dashboard.cost ? `\nAzure month-to-date: ${dashboard.cost.currency} ${dashboard.cost.monthToDate.toFixed(2)} (billing data may be delayed)\n` : "";
+  return `# Agent Factory Hourly Report\n\nGenerated: ${dashboard.generatedAt}\n\nQueue: ${dashboard.queue.active} active, ${dashboard.queue.deadLetter} dead-letter\n${cost}\nObjectives: ${objectives}\n`;
 }
 
 async function atomicWrite(file, content) {
@@ -33,7 +34,11 @@ async function main() {
   const root = process.env.FACTORY_STATE_DIR ?? "/opt/agent-factory/state";
   const loaded = await loadLocalState(root);
   const queue = process.env.SERVICE_BUS_NAMESPACE ? await loadQueueMetrics(loadConfig()) : {};
-  const dashboard = aggregateDashboard({ ...loaded, queue, runtime: { status: "running" } });
+  let cost = null;
+  if (process.env.AZURE_SUBSCRIPTION_ID) {
+    try { cost = await loadAzureCost(loadConfig()); } catch (error) { loaded.warnings.push(`Cost unavailable: ${error.message}`); }
+  }
+  const dashboard = aggregateDashboard({ ...loaded, queue, cost, runtime: { status: "running" } });
   const stem = await writeHourlyReport(root, dashboard);
   process.stdout.write(`${JSON.stringify({ event: "hourly_report", report: stem })}\n`);
 }

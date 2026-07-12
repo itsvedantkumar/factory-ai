@@ -10,6 +10,7 @@ import {
   renderDashboard,
   stableStringify,
   loadQueueMetrics,
+  loadAzureCost,
 } from "../src/dashboard.js";
 
 const state = {
@@ -44,9 +45,20 @@ test("aggregates objective and task operator state", () => {
   assert.deepEqual(dashboard.summary.objectives, { running: 1 });
   assert.equal(dashboard.queue.deadLetter, 1);
   assert.equal(dashboard.worker.uptimeSeconds, 3780);
-  assert.equal(dashboard.objectives[0].tasks[0].model, "azureai-textved/gpt-5.6-sol");
+  assert.equal(dashboard.objectives[0].tasks[0].model, "azureai-textved/factory-kimi-k2-7-code");
   assert.equal(dashboard.objectives[0].tasks[1].state, "ready");
   assert.deepEqual(dashboard.objectives[0].checks, ["build-one: npm test"]);
+});
+
+test("loads month-to-date Azure cost grouped by service", async () => {
+  const cost = await loadAzureCost({ subscriptionId: "sub", resourceGroup: "rg" }, {
+    credential: { getToken: async () => ({ token: "token" }) },
+    fetch: async () => ({ ok: true, json: async () => ({ properties: {
+      columns: [{ name: "Cost" }, { name: "ResourceType" }, { name: "Currency" }],
+      rows: [[12.5, "Microsoft.Compute/virtualMachines", "USD"], [2.25, "Microsoft.ServiceBus/namespaces", "USD"]],
+    } }) }),
+  });
+  assert.deepEqual(cost, { monthToDate: 14.75, currency: "USD", byService: { "Microsoft.Compute/virtualMachines": 12.5, "Microsoft.ServiceBus/namespaces": 2.25 } });
 });
 
 test("loads active and dead-letter counts across all durable queues", async () => {

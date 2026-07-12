@@ -290,6 +290,15 @@ resource operatorQueueOwner 'Microsoft.Authorization/roleAssignments@2022-04-01'
   }
 }
 
+resource workerCostReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(resourceGroup().id, vm.id, 'cost-management-reader')
+  properties: {
+    principalId: vm.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '72fafb9e-0641-4937-9268-a91bfd8191a3')
+  }
+}
+
 output vmName string = vm.name
 output privateIp string = nic.properties.ipConfigurations[0].properties.privateIPAddress
 output egressIp string = egressIp.properties.ipAddress

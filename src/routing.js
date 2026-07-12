@@ -13,7 +13,7 @@ const MODELS = Object.freeze({
   scout: "azureai-textved/factory-gpt-5-4-nano",
   tester: "azureai-responses/gpt-5.4",
   planner: "azureai-textved/gpt-5.6-sol",
-  builder: "azureai-textved/gpt-5.6-sol",
+  builder: "azureai-textved/factory-kimi-k2-7-code",
   debugger: "azureai-textved/gpt-5.6-sol",
   reviewer: "azureai-textved/gpt-5.6-sol",
   security: "azureai-textved/gpt-5.6-sol",

@@ -12,7 +12,8 @@ Roles and routing:
 | --- | --- |
 | scout | `azureai-textved/factory-gpt-5-4-nano` |
 | tester | `azureai-responses/gpt-5.4` |
-| planner, builder, debugger, reviewer, security, release | `azureai-textved/gpt-5.6-sol` |
+| builder | `azureai-textved/factory-kimi-k2-7-code` |
+| planner, debugger, reviewer, security, release | `azureai-textved/gpt-5.6-sol` |
 
 Each objective has durable JSON state in `/opt/agent-factory/state/<objective-id>`. Each task gets a branch and Git worktree under `/opt/agent-factory/workspaces/<objective-id>`. Agents commit milestone checkpoints; the trusted runtime periodically pushes only the explicit task-branch refspec and always pushes a final checkpoint. A release is withheld unless tester, reviewer, and security roles explicitly approve. The terminal release branch integrates their dependency commits, creates or updates the PR, waits for required checks, and enables GitHub auto-merge only when checks pass and repository policy allows auto-merge. It never pushes the base branch.
 

@@ -28,7 +28,7 @@ test("routes each role to the correct Azure endpoint without OpenCode", async ()
   assert.equal(created[0].baseUrl, "https://primary.test/openai/v1");
   assert.equal(created[0].model, "factory-gpt-5-4-nano");
   assert.equal(created[1].baseUrl, "https://primary.test/openai/v1");
-  assert.equal(created[1].model, "gpt-5.6-sol");
+  assert.equal(created[1].model, "factory-kimi-k2-7-code");
   assert.ok(created.every((entry) => entry.tools.read_file && entry.tools.run_command));
 });
 

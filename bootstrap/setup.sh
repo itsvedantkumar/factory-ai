@@ -51,6 +51,7 @@ if [[ -b $STATE_DEVICE ]]; then
 fi
 
 az login --identity --allow-no-subscriptions --output none
+subscription_id=$(az account show --query id --output tsv)
 for secret_name in \
   "${AZURE_PRIMARY_API_KEY_SECRET:-azure-primary-api-key}" \
   "${AZURE_PRIMARY_BASE_URL_SECRET:-azure-primary-base-url}" \
@@ -68,6 +69,8 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'AGENT_QUEUE=agent-tasks\n'
   printf 'RELEASE_QUEUE=release-tasks\n'
   printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
+  printf 'AZURE_SUBSCRIPTION_ID=%s\n' "$subscription_id"
+  printf 'FACTORY_RESOURCE_GROUP=rg-vedant-3569\n'
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_WORKSPACE_DIR=/opt/agent-factory/workspaces\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
@@ -84,6 +87,8 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
   printf 'AGENT_QUEUE=agent-tasks\n'
   printf 'RELEASE_QUEUE=release-tasks\n'
   printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
+  printf 'AZURE_SUBSCRIPTION_ID=%s\n' "$subscription_id"
+  printf 'FACTORY_RESOURCE_GROUP=rg-vedant-3569\n'
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
   printf 'MAX_DELIVERY_COUNT=8\n'
