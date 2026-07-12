@@ -7,6 +7,8 @@
 One CEO interface delegates to a deterministic CTO that coordinates isolated coding, testing, security, and release agents across Azure AI and Bedrock—then delivers verified GitHub pull requests with durable memory, recovery, and cost visibility.
 
 [![CI](https://github.com/itsvedantkumar/factory-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/itsvedantkumar/factory-ai/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/factory-ai.svg?logo=npm)](https://www.npmjs.com/package/factory-ai)
+[![npm downloads](https://img.shields.io/npm/dm/factory-ai.svg)](https://www.npmjs.com/package/factory-ai)
 [![Node 20](https://img.shields.io/badge/node-20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Azure](https://img.shields.io/badge/runtime-Azure-0078D4?logo=microsoftazure)](https://azure.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
