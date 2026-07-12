@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ROLES } from "./routing.js";
 
-const identifier = z.string().min(8).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
+const identifier = z.string().min(3).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
 const repository = z.string().url().max(2048).refine((value) => {
   const parsed = new URL(value);
   return parsed.protocol === "https:" && parsed.hostname === "github.com" && /^\/[^/]+\/[^/]+(?:\.git)?$/.test(parsed.pathname);
