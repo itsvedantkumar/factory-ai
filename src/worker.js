@@ -3,7 +3,7 @@ import { loadConfig } from "./config.js";
 import { createBus } from "./bus.js";
 import { StateStore } from "./state.js";
 import { WorkspaceManager } from "./workspace.js";
-import { OpenCodeRunner } from "./opencode.js";
+import { AzureAgentRunner } from "./agent-runner.js";
 import { Orchestrator, loadRegistry } from "./orchestrator.js";
 import { log } from "./log.js";
 import { GitHubRelease } from "./release.js";
@@ -18,7 +18,7 @@ const bus = createBus(config);
 const orchestrator = new Orchestrator({
   store: new StateStore(config.stateDir),
   workspaces: new WorkspaceManager(config.workspaceDir, config.timeoutMs),
-  openCode: new OpenCodeRunner(config, registry),
+  agentRunner: new AzureAgentRunner(config, registry),
   release: new GitHubRelease(config.timeoutMs),
   sender: bus.sender,
 });

@@ -1,6 +1,6 @@
 # Azure Agent Factory
 
-Private Azure Linux host for a durable, bounded CTO and isolated OpenCode role workers.
+Private Azure Linux host for a durable, bounded CTO and isolated custom Azure Responses API workers.
 
 ## Runtime
 
@@ -53,7 +53,7 @@ sudo KEY_VAULT_NAME='<vault-name>' \
   bash /opt/agent-factory/app/bootstrap/setup.sh
 ```
 
-The script installs Node 20, Azure CLI, `gh`, `opencode-ai@1.17.18`, production npm dependencies, a root-owned environment file, and `agent-factory-worker.service`. It is intended to be rerunnable. Verify on Ubuntu with:
+The script installs Node 20, Azure CLI, `gh`, production npm dependencies, a root-owned environment file, and `agent-factory-worker.service`. It is intended to be rerunnable. Verify on Ubuntu with:
 
 ```bash
 sudo systemd-analyze verify /etc/systemd/system/agent-factory-worker.service

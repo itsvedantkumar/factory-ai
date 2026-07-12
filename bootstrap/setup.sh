@@ -27,10 +27,7 @@ curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor --y
 printf '%s\n' "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $(. /etc/os-release && echo "$VERSION_CODENAME") main" > /etc/apt/sources.list.d/azure-cli.list
 apt-get update
 apt-get install -y azure-cli gh nodejs
-npm install --global opencode-ai@1.17.18
-OPENCODE_PATH=$(command -v opencode)
 test "$(node --version | cut -d. -f1)" = "v20"
-test "$(opencode --version)" = "1.17.18"
 
 id "$FACTORY_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin "$FACTORY_USER"
 test -f "$APP_DIR/package-lock.json"
@@ -56,8 +53,6 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_WORKSPACE_DIR=/opt/agent-factory/workspaces\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
-  printf 'OPENCODE_CONFIG=%s/config/opencode.json\n' "$APP_DIR"
-  printf 'OPENCODE_BIN=%s\n' "$OPENCODE_PATH"
   printf 'MAX_CONCURRENCY=3\n'
   printf 'TASK_TIMEOUT_MS=1800000\n'
   printf 'MAX_DELIVERY_COUNT=8\n'

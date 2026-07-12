@@ -11,10 +11,10 @@ export async function loadRegistry(file) {
 }
 
 export class Orchestrator {
-  constructor({ store, workspaces, openCode, release, sender }) {
+  constructor({ store, workspaces, agentRunner, release, sender }) {
     this.store = store;
     this.workspaces = workspaces;
-    this.openCode = openCode;
+    this.agentRunner = agentRunner;
     this.release = release;
     this.sender = sender;
   }
@@ -37,9 +37,9 @@ export class Orchestrator {
     if (["complete", "failed", "blocked"].includes(state.status)) return;
     if (state.tasks.length === 0) {
       const control = await this.workspaces.ensureObjective(objective);
-      const plan = parsePlan(await this.openCode.plan(objective, control));
+      const plan = parsePlan(await this.agentRunner.plan(objective, control));
       validateDeliveryGraph(plan.tasks);
-      for (const task of plan.tasks) selectCapabilities(this.openCode.registry, task.role, task.capabilities);
+      for (const task of plan.tasks) selectCapabilities(this.agentRunner.registry, task.role, task.capabilities);
       state = await this.store.update(objective.id, (current) => ({
         ...current,
         status: "running",
@@ -72,7 +72,7 @@ export class Orchestrator {
     }));
     const dependencyCommits = task.dependsOn.map((id) => state.results[id]?.commit).filter(Boolean);
     const directory = await this.workspaces.prepareTask(state.objective, task, dependencyCommits);
-    const response = parseTaskResult(await this.openCode.invoke({
+    const response = parseTaskResult(await this.agentRunner.invoke({
       objective: state.objective,
       task,
       directory,

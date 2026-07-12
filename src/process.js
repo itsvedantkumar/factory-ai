@@ -1,11 +1,11 @@
 import { spawn } from "node:child_process";
 
 export function run(command, args, options = {}) {
-  const { cwd, env, timeoutMs = 300_000, input, allowExitCodes = [0], maxOutputBytes = 10_000_000 } = options;
+  const { cwd, env, inheritEnv = true, timeoutMs = 300_000, input, allowExitCodes = [0], maxOutputBytes = 10_000_000 } = options;
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: env ? { ...process.env, ...env } : process.env,
+      env: inheritEnv ? { ...process.env, ...env } : env,
       stdio: [input ? "pipe" : "ignore", "pipe", "pipe"],
       shell: false,
     });
