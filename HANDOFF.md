@@ -6,10 +6,10 @@ Azure-hosted autonomous coding factory with one CEO interface, deterministic CTO
 
 ## Azure resources
 
-- Resource group: `rg-vedant-3569`
-- VM: `agent-factory-vm`
-- Service Bus: `af-4jelq52xdxoty`
-- Key Vault: `af4jelq52xdxoty`
+- Resource group: configured by `FACTORY_RESOURCE_GROUP`
+- VM: configured by `FACTORY_VM`
+- Service Bus: configured by `FACTORY_SERVICE_BUS`
+- Key Vault: configured by `FACTORY_KEY_VAULT`
 - Queues: `control-events`, `agent-tasks`, `release-tasks`
 
 Infrastructure is reproducible from `infra/main.bicep`. Runtime is installed from a pinned Git commit. See `ARCHITECTURE.md`, `RUNBOOK.md`, and `SECURITY.md` before changing production behavior.
@@ -20,4 +20,4 @@ For GitHub Enterprise Cloud, keep the `github.com` host. Run `bin/factory github
 
 ## Known platform limitation
 
-GitHub refuses branch protection and auto-merge for private repositories on the current account plan. The factory therefore leaves approved PRs open. Upgrade the plan or use eligible repositories to enable policy-controlled auto-merge.
+Private-repository branch protection and auto-merge depend on the GitHub account or organization plan. Factory AI leaves approved PRs open whenever repository policy does not permit auto-merge.

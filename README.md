@@ -203,6 +203,7 @@ npm pack --dry-run
 | [SECURITY.md](SECURITY.md) | Security policy and extension rules |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and verification contract |
 | [HANDOFF.md](HANDOFF.md) | Team/friend transfer context |
+| [docs/COMPARISON.md](docs/COMPARISON.md) | Honest comparison with paid alternatives |
 
 ## Current Limitations
 
