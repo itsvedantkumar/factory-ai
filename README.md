@@ -2,6 +2,26 @@
 
 Private Azure Linux host for a durable, bounded CTO and isolated custom Azure Responses API workers.
 
+## One-command install
+
+Requirements: Node 20, Azure CLI, GitHub CLI, and authenticated `az login` / `gh auth login` sessions.
+
+```bash
+npm install -g github:itsvedantkumar/agent-factory
+factory setup
+```
+
+The arrow-key wizard selects Azure Foundry, AWS Bedrock, or both; creates Azure infrastructure; prompts for credentials without printing them; stores credentials in Key Vault; optionally connects a GitHub Enterprise organization; configures role-level models; and deploys a pinned runtime revision. Nothing requires hand-editing JSON.
+
+For development from source:
+
+```bash
+git clone https://github.com/itsvedantkumar/agent-factory.git
+cd agent-factory
+npm ci
+bin/factory setup
+```
+
 ## Runtime
 
 `agent-factory-ceo` validates and sends one objective to Azure Service Bus. The CTO runs GPT-5.6, creates a validated DAG, and dispatches ready tasks with deterministic message IDs. Task handlers emit separate, strictly validated result messages before the CTO advances the graph. A single worker process uses peek-lock settlement, automatic lock renewal, explicit retries/dead-lettering, and at most three concurrent handlers.
@@ -14,6 +34,8 @@ Roles and routing:
 | tester | `azureai-responses/gpt-5.4` |
 | builder | `azureai-textved/factory-kimi-k2-7-code` |
 | planner, debugger, reviewer, security, release | `azureai-textved/gpt-5.6-sol` |
+
+Any role can be overridden during setup with a `bedrock/MODEL_ID` route. Bedrock uses the Converse tool API behind the same filesystem, command, MCP, timeout, and release gates.
 
 Each objective has durable JSON state in `/opt/agent-factory/state/<objective-id>`. Each task gets a branch and self-contained Git clone under `/opt/agent-factory/workspaces/<objective-id>`. Agents commit milestone checkpoints; the trusted runtime periodically pushes only the explicit task-branch refspec and always pushes a final checkpoint. A release is withheld unless tester, reviewer, and security roles explicitly approve. The terminal release branch integrates their dependency commits, creates or updates the PR, waits for required checks, and enables GitHub auto-merge only when checks pass and repository policy allows auto-merge. It never pushes the base branch.
 

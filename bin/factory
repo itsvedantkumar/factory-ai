@@ -30,10 +30,18 @@ command=${1:-help}
 shift || true
 case "$command" in
   setup)
-    for dependency in az gh jq curl ssh-keygen; do command -v "$dependency" >/dev/null || { printf 'Missing dependency: %s\n' "$dependency" >&2; exit 1; }; done
+    for dependency in az gh jq curl ssh-keygen node; do command -v "$dependency" >/dev/null || { printf 'Missing dependency: %s\n' "$dependency" >&2; exit 1; }; done
+    choices=$(mktemp)
+    trap 'rm -f "$choices"' EXIT
+    node "$(dirname "$0")/../src/setup-menu.js" "$choices"
+    provider=$(jq -r .provider "$choices")
+    location=$(jq -r .location "$choices")
+    enterprise_org=$(jq -r .githubOrg "$choices")
+    aws_region=$(jq -r .awsRegion "$choices")
+    bedrock_builder=$(jq -r .bedrockBuilderModel "$choices")
+    deploy_now=$(jq -r .deployNow "$choices")
     az account show --query '{subscription:name,state:state}' --output table
     gh auth status
-    location=${FACTORY_LOCATION:-centralindia}
     az group show --name "$RESOURCE_GROUP" --output none 2>/dev/null || az group create --name "$RESOURCE_GROUP" --location "$location" --output none
     key=${FACTORY_SSH_KEY:-$HOME/.ssh/agent-factory-azure}
     [[ -f $key ]] || ssh-keygen -t ed25519 -f "$key" -N "" -C agent-factory-azure
@@ -41,6 +49,8 @@ case "$command" in
     deployment=$(az deployment group create --name agent-factory-setup --resource-group "$RESOURCE_GROUP" --template-file "$(dirname "$0")/../infra/main.bicep" --parameters adminSshKey="$(< "$key.pub")" operatorObjectId="$operator" --output json)
     vault=$(jq -r '.properties.outputs.keyVaultName.value' <<<"$deployment")
     namespace=$(jq -r '.properties.outputs.serviceBusNamespace.value' <<<"$deployment")
+    VAULT=$vault
+    NAMESPACE=$namespace
     mkdir -p "$(dirname "$CONFIG_FILE")"
     {
       printf 'FACTORY_RESOURCE_GROUP=%q\n' "$RESOURCE_GROUP"
@@ -49,7 +59,54 @@ case "$command" in
       printf 'FACTORY_KEY_VAULT=%q\n' "$vault"
     } > "$CONFIG_FILE"
     chmod 0600 "$CONFIG_FILE"
-    printf 'Azure foundation ready. Config: %s\nNext: factory github status, then factory secret set for required model credentials.\n' "$CONFIG_FILE"
+    ip=$(curl -fsS https://api.ipify.org)
+    cleanup_setup_vault() { az keyvault network-rule remove --name "$vault" --ip-address "$ip/32" --output none >/dev/null 2>&1 || true; rm -f "$choices"; }
+    trap cleanup_setup_vault EXIT
+    az keyvault network-rule add --name "$vault" --ip-address "$ip/32" --output none
+    sleep 10
+    github_token=$(gh auth token)
+    az keyvault secret set --vault-name "$vault" --name github-token --value "$github_token" --output none
+    unset github_token
+    if [[ -n $enterprise_org ]]; then
+      gh api "orgs/$enterprise_org" --silent
+      az keyvault secret set --vault-name "$vault" --name github-enterprise-org --value "$enterprise_org" --output none
+    fi
+    if [[ $provider == azure || $provider == both ]]; then
+      read -r -p 'Azure OpenAI-compatible base URL: ' azure_base
+      read -r -s -p 'Azure API key: ' azure_key; printf '\n'
+      read -r -p 'Separate GPT-5.4 base URL (Enter to reuse): ' azure_small_base
+      [[ -n $azure_small_base ]] || azure_small_base=$azure_base
+      read -r -s -p 'Separate GPT-5.4 key (Enter to reuse): ' azure_small_key; printf '\n'
+      [[ -n $azure_small_key ]] || azure_small_key=$azure_key
+      az keyvault secret set --vault-name "$vault" --name azure-primary-base-url --value "$azure_base" --output none
+      az keyvault secret set --vault-name "$vault" --name azure-primary-api-key --value "$azure_key" --output none
+      az keyvault secret set --vault-name "$vault" --name azure-small-base-url --value "$azure_small_base" --output none
+      az keyvault secret set --vault-name "$vault" --name azure-small-api-key --value "$azure_small_key" --output none
+      unset azure_key azure_small_key
+    fi
+    if [[ $provider == bedrock || $provider == both ]]; then
+      read -r -p 'AWS access key ID: ' aws_access_key
+      read -r -s -p 'AWS secret access key: ' aws_secret_key; printf '\n'
+      read -r -s -p 'AWS session token (optional): ' aws_session_token; printf '\n'
+      az keyvault secret set --vault-name "$vault" --name aws-access-key-id --value "$aws_access_key" --output none
+      az keyvault secret set --vault-name "$vault" --name aws-secret-access-key --value "$aws_secret_key" --output none
+      [[ -n $aws_session_token ]] && az keyvault secret set --vault-name "$vault" --name aws-session-token --value "$aws_session_token" --output none
+      unset aws_access_key aws_secret_key aws_session_token
+    fi
+    printf 'Azure foundation and credential vault ready. Config: %s\n' "$CONFIG_FILE"
+    if [[ $deploy_now == true ]]; then
+      source_ref=$(gh api repos/itsvedantkumar/agent-factory/commits/main --jq .sha)
+      parameters=(KEY_VAULT_NAME "$vault" SERVICE_BUS_NAMESPACE "$namespace" SERVICE_BUS_QUEUE code-tasks SOURCE_REPOSITORY itsvedantkumar/agent-factory SOURCE_REF "$source_ref")
+      if [[ $provider == bedrock ]]; then
+        parameters+=(AWS_REGION "$aws_region")
+        for role in SCOUT PLANNER BUILDER TESTER DEBUGGER REVIEWER SECURITY RELEASE; do parameters+=("FACTORY_MODEL_$role" "bedrock/$bedrock_builder"); done
+      elif [[ $provider == both ]]; then
+        parameters+=(AWS_REGION "$aws_region" FACTORY_MODEL_BUILDER "bedrock/$bedrock_builder")
+      fi
+      az vm run-command invoke --resource-group "$RESOURCE_GROUP" --name agent-factory-vm --command-id RunShellScript \
+        --scripts @"$(dirname "$0")/../bootstrap/deploy-runtime.sh" --parameters "${parameters[@]}" --output none
+      printf 'Runtime deployed. Run: factory doctor && factory dashboard\n'
+    fi
     ;;
   github)
     action=${1:-status}

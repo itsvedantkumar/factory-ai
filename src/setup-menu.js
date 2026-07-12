@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+import { confirm, input, select } from "@inquirer/prompts";
+import { writeFile } from "node:fs/promises";
+
+const output = process.argv[2];
+if (!output) throw new Error("Setup result path is required");
+
+const provider = await select({
+  message: "Which model provider should the factory configure?",
+  choices: [
+    { name: "Azure AI Foundry (recommended)", value: "azure" },
+    { name: "AWS Bedrock", value: "bedrock" },
+    { name: "Azure + Bedrock", value: "both" },
+  ],
+});
+const location = await input({ message: "Azure infrastructure region", default: "centralindia" });
+const githubOrg = await input({ message: "GitHub Enterprise organization (optional)", default: "" });
+let awsRegion = "us-east-1";
+let bedrockBuilderModel = "";
+if (provider !== "azure") {
+  awsRegion = await input({ message: "AWS Bedrock region", default: "us-east-1" });
+  bedrockBuilderModel = await input({ message: "Bedrock builder model ID", default: "us.anthropic.claude-sonnet-4-6-v1:0" });
+}
+const deployNow = await confirm({ message: "Deploy and start the runtime after storing credentials?", default: true });
+await writeFile(output, `${JSON.stringify({ provider, location, githubOrg, awsRegion, bedrockBuilderModel, deployNow })}\n`, { mode: 0o600 });

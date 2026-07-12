@@ -4,6 +4,7 @@ import { selectCapabilities } from "./capabilities.js";
 import { modelForRole } from "./routing.js";
 import { createWorkspaceTools } from "./workspace-tools.js";
 import { connectMcpTools } from "./mcp-tools.js";
+import { BedrockHarness } from "./bedrock-harness.js";
 
 function parseJson(text) {
   const fenced = text.match(/```json\s*([\s\S]*?)```/i)?.[1];
@@ -15,7 +16,7 @@ function parseJson(text) {
 }
 
 function endpointForRole(role, environment) {
-  const route = modelForRole(role);
+  const route = modelForRole(role, environment);
   const [provider, model] = route.split("/");
   const lightweight = provider === "azureai-responses";
   const baseUrl = lightweight ? environment.AZURE_OPENAI_BASE_URL : environment.TEXTVED_AZURE_BASE_URL;
@@ -28,11 +29,13 @@ export class AzureAgentRunner {
   constructor(config, registry, {
     environment = process.env,
     createHarness = (options) => new AzureResponsesHarness(options),
+    createBedrockHarness = (options) => new BedrockHarness(options),
   } = {}) {
     this.config = config;
     this.registry = registry;
     this.environment = environment;
     this.createHarness = createHarness;
+    this.createBedrockHarness = createBedrockHarness;
   }
 
   async promptForTask(objective, task, prompt, capabilities) {
@@ -51,12 +54,18 @@ export class AzureAgentRunner {
   }
 
   harness(role, directory, additionalTools = {}) {
-    return this.createHarness({
-      ...endpointForRole(role, this.environment),
-      tools: { ...createWorkspaceTools(directory), ...additionalTools },
-      timeoutMs: this.config.timeoutMs,
-      maxSteps: role === "scout" ? 20 : 40,
-    });
+    const route = modelForRole(role, this.environment);
+    const tools = { ...createWorkspaceTools(directory), ...additionalTools };
+    const maxSteps = role === "scout" ? 20 : 40;
+    if (route.startsWith("bedrock/")) {
+      return this.createBedrockHarness({
+        region: this.environment.AWS_REGION ?? "us-east-1",
+        model: route.slice("bedrock/".length),
+        tools,
+        maxSteps,
+      });
+    }
+    return this.createHarness({ ...endpointForRole(role, this.environment), tools, timeoutMs: this.config.timeoutMs, maxSteps });
   }
 
   async invoke({ objective, task, directory, prompt }) {

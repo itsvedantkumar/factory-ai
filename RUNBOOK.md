@@ -20,6 +20,13 @@ bin/factory pause
 bin/factory resume
 ```
 
+Fresh install:
+
+```bash
+npm install -g github:itsvedantkumar/agent-factory
+factory setup
+```
+
 Override defaults with `FACTORY_RESOURCE_GROUP`, `FACTORY_VM`, and `FACTORY_SERVICE_BUS`.
 
 ## Recovery

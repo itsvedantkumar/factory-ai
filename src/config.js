@@ -21,6 +21,9 @@ const environmentSchema = z.object({
   AZURE_SMALL_API_KEY_SECRET: z.string().min(1).default("azure-small-api-key"),
   AZURE_SMALL_BASE_URL_SECRET: z.string().min(1).default("azure-small-base-url"),
   GITHUB_TOKEN_SECRET: z.string().min(1).default("github-token"),
+  AWS_ACCESS_KEY_ID_SECRET: z.string().min(1).default("aws-access-key-id"),
+  AWS_SECRET_ACCESS_KEY_SECRET: z.string().min(1).default("aws-secret-access-key"),
+  AWS_SESSION_TOKEN_SECRET: z.string().min(1).default("aws-session-token"),
 }).passthrough();
 
 export function loadConfig(environment = process.env) {
@@ -42,6 +45,9 @@ export function loadConfig(environment = process.env) {
       AZURE_OPENAI_API_KEY: env.AZURE_SMALL_API_KEY_SECRET,
       AZURE_OPENAI_BASE_URL: env.AZURE_SMALL_BASE_URL_SECRET,
       GH_TOKEN: env.GITHUB_TOKEN_SECRET,
+      AWS_ACCESS_KEY_ID: env.AWS_ACCESS_KEY_ID_SECRET,
+      AWS_SECRET_ACCESS_KEY: env.AWS_SECRET_ACCESS_KEY_SECRET,
+      AWS_SESSION_TOKEN: env.AWS_SESSION_TOKEN_SECRET,
     },
     stateDir: path.resolve(env.FACTORY_STATE_DIR),
     memoryDir: path.resolve(env.FACTORY_STATE_DIR, "memory"),

@@ -52,12 +52,7 @@ fi
 
 az login --identity --allow-no-subscriptions --output none
 subscription_id=$(az account show --query id --output tsv)
-for secret_name in \
-  "${AZURE_PRIMARY_API_KEY_SECRET:-azure-primary-api-key}" \
-  "${AZURE_PRIMARY_BASE_URL_SECRET:-azure-primary-base-url}" \
-  "${AZURE_SMALL_API_KEY_SECRET:-azure-small-api-key}" \
-  "${AZURE_SMALL_BASE_URL_SECRET:-azure-small-base-url}" \
-  "${GITHUB_TOKEN_SECRET:-github-token}"; do
+for secret_name in "${GITHUB_TOKEN_SECRET:-github-token}"; do
   az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" --query id --output none
 done
 
@@ -78,6 +73,10 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'MAX_CONCURRENCY=3\n'
   printf 'TASK_TIMEOUT_MS=1800000\n'
   printf 'MAX_DELIVERY_COUNT=8\n'
+  [[ -n ${AWS_REGION:-} ]] && printf 'AWS_REGION=%s\nAWS_DEFAULT_REGION=%s\n' "$AWS_REGION" "$AWS_REGION"
+  for variable in FACTORY_MODEL_SCOUT FACTORY_MODEL_PLANNER FACTORY_MODEL_BUILDER FACTORY_MODEL_TESTER FACTORY_MODEL_DEBUGGER FACTORY_MODEL_REVIEWER FACTORY_MODEL_SECURITY FACTORY_MODEL_RELEASE; do
+    [[ -n ${!variable:-} ]] && printf '%s=%s\n' "$variable" "${!variable}"
+  done
 } > /etc/agent-factory.env
 
 install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
@@ -92,6 +91,10 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
   printf 'MAX_DELIVERY_COUNT=8\n'
+  [[ -n ${AWS_REGION:-} ]] && printf 'AWS_REGION=%s\nAWS_DEFAULT_REGION=%s\n' "$AWS_REGION" "$AWS_REGION"
+  for variable in FACTORY_MODEL_SCOUT FACTORY_MODEL_PLANNER FACTORY_MODEL_BUILDER FACTORY_MODEL_TESTER FACTORY_MODEL_DEBUGGER FACTORY_MODEL_REVIEWER FACTORY_MODEL_SECURITY FACTORY_MODEL_RELEASE; do
+    [[ -n ${!variable:-} ]] && printf '%s=%s\n' "$variable" "${!variable}"
+  done
 } > /etc/agent-factory-control.env
 
 chown -R "$FACTORY_USER:$FACTORY_USER" /opt/agent-factory/state /opt/agent-factory/workspaces /opt/agent-factory/logs

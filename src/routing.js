@@ -20,8 +20,8 @@ const MODELS = Object.freeze({
   release: "azureai-textved/gpt-5.6-sol",
 });
 
-export function modelForRole(role) {
-  const model = MODELS[role];
+export function modelForRole(role, environment = process.env) {
+  const model = environment[`FACTORY_MODEL_${role.toUpperCase()}`] ?? MODELS[role];
   if (!model) throw new Error(`Unknown role: ${role}`);
   return model;
 }

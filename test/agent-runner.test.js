@@ -59,3 +59,15 @@ test("fails closed when role credentials are unavailable", async () => {
     prompt: "Work",
   }), /credentials are unavailable/);
 });
+
+test("supports Bedrock role overrides through the same agent contract", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-bedrock-runner-"));
+  let options;
+  const runner = new AzureAgentRunner({ timeoutMs: 60_000 }, { defaults: {}, skills: {}, mcp: {} }, {
+    environment: { FACTORY_MODEL_BUILDER: "bedrock/us.anthropic.claude-sonnet-4-6-v1:0", AWS_REGION: "us-east-1" },
+    createBedrockHarness: (value) => { options = value; return { run: async () => ({ text: '{"summary":"ok","checks":[],"risks":[],"approval":"not_applicable"}' }) }; },
+  });
+  await runner.invoke({ objective: { id: "o", objective: "Ship" }, task: { id: "b", role: "builder", instructions: "Build", capabilities: [] }, directory, prompt: "Work" });
+  assert.equal(options.model, "us.anthropic.claude-sonnet-4-6-v1:0");
+  assert.equal(options.region, "us-east-1");
+});
