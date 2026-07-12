@@ -15,6 +15,7 @@ usage() {
     'Agent Factory operator console' \
     'Usage: factory <command>' \
     '  submit <owner/repo> <objective>' \
+    '  init <local-project-path>' \
     '  dashboard | status | queue | report | logs | doctor' \
     '  pause | resume'
 }
@@ -22,6 +23,17 @@ usage() {
 command=${1:-help}
 shift || true
 case "$command" in
+  init)
+    target=${1:?local project path required}
+    [[ -d $target ]] || { printf 'Project directory does not exist: %s\n' "$target" >&2; exit 2; }
+    context="$target/.agent-factory"
+    mkdir -p "$context"
+    for template in "$(dirname "$0")/../templates/project/"*.md; do
+      destination="$context/$(basename "$template")"
+      [[ -e $destination ]] || cp "$template" "$destination"
+    done
+    printf 'Initialized %s\nShared runtime memory remains on Azure; repo context lives in .agent-factory/.\n' "$context"
+    ;;
   submit)
     repo=${1:?repository owner/name required}
     shift

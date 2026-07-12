@@ -84,6 +84,10 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
         properties: {
           addressPrefix: '10.42.1.0/24'
           defaultOutboundAccess: false
+          serviceEndpoints: [
+            { service: 'Microsoft.KeyVault' }
+            { service: 'Microsoft.ServiceBus' }
+          ]
           natGateway: {
             id: natGateway.id
           }
@@ -129,6 +133,17 @@ resource vault 'Microsoft.KeyVault/vaults@2024-11-01' = {
     enableSoftDelete: true
     softDeleteRetentionInDays: 90
     publicNetworkAccess: 'Enabled'
+    networkAcls: {
+      bypass: 'AzureServices'
+      defaultAction: 'Deny'
+      ipRules: []
+      virtualNetworkRules: [
+        {
+          id: vnet.properties.subnets[0].id
+          ignoreMissingVnetServiceEndpoint: false
+        }
+      ]
+    }
   }
 }
 
@@ -143,6 +158,25 @@ resource serviceBus 'Microsoft.ServiceBus/namespaces@2024-01-01' = {
     disableLocalAuth: true
     minimumTlsVersion: '1.2'
     publicNetworkAccess: 'Enabled'
+  }
+}
+
+resource serviceBusNetworkRules 'Microsoft.ServiceBus/namespaces/networkRuleSets@2024-01-01' = {
+  parent: serviceBus
+  name: 'default'
+  properties: {
+    defaultAction: 'Deny'
+    publicNetworkAccess: 'Enabled'
+    trustedServiceAccessEnabled: true
+    ipRules: []
+    virtualNetworkRules: [
+      {
+        subnet: {
+          id: vnet.properties.subnets[0].id
+        }
+        ignoreMissingVnetServiceEndpoint: false
+      }
+    ]
   }
 }
 

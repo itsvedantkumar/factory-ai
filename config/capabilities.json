@@ -1,12 +1,12 @@
 {
   "defaults": {
-    "scout": ["code-search", "token-efficiency", "context7"],
+    "scout": ["code-search", "token-efficiency", "project-context", "context7", "memory"],
     "planner": ["token-efficiency", "goal-management", "autonomous-loop", "project-context", "memory"],
     "builder": ["code-search", "test-driven-development", "verification-before-completion", "context7"],
     "tester": ["test-discipline", "verification-before-completion"],
     "debugger": ["code-search", "systematic-debugging", "verification-before-completion", "context7"],
-    "reviewer": ["secure-review", "verification-before-completion"],
-    "security": ["secure-review", "dependency-security"],
+    "reviewer": ["secure-review", "verification-before-completion", "project-context", "memory"],
+    "security": ["secure-review", "dependency-security", "project-context", "memory"],
     "release": ["release-checklist"]
   },
   "skills": {
@@ -73,7 +73,7 @@
     "project-context": {
       "version": "1.0.0",
       "path": "/opt/agent-factory/app/capabilities/project-context/SKILL.md",
-      "roles": ["planner", "scout", "reviewer"]
+      "roles": ["planner", "scout", "reviewer", "security"]
     }
   },
   "mcp": {
@@ -101,7 +101,7 @@
       "environment": {
         "MEMORY_FILE_PATH": "/memory/knowledge-graph.jsonl"
       },
-      "roles": ["planner", "scout", "reviewer"]
+      "roles": ["planner", "scout", "reviewer", "security"]
     }
   }
 }

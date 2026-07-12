@@ -4,6 +4,7 @@
 
 ```bash
 bin/factory submit OWNER/REPO "/loop ship the objective"
+bin/factory init /path/to/new-project
 bin/factory dashboard
 bin/factory queue
 bin/factory logs
