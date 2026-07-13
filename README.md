@@ -131,6 +131,7 @@ Factory AI minimizes tokens before relying on cheaper models:
 - File reads are line-ranged and bounded; listings, commands, MCP output, memory, and scanner evidence are truncated with continuation hints.
 - Read-only roles do not receive write-tool schemas.
 - Planner memory is compact, repository-scoped, and limited to recent verified events.
+- Ollama generates local embeddings and Qdrant retrieves only top-ranked code chunks, avoiding embedding API charges and whole-repository prompts.
 - Dashboard and TUI track input, cached-input, and output tokens by model.
 - The planner is instructed to produce the smallest valid DAG, avoiding duplicate agents.
 
@@ -255,6 +256,7 @@ npm pack --dry-run
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Development and verification contract |
 | [HANDOFF.md](HANDOFF.md) | Team/friend transfer context |
 | [docs/COMPARISON.md](docs/COMPARISON.md) | Honest comparison with paid alternatives |
+| [docs/HARNESS_PARITY.md](docs/HARNESS_PARITY.md) | Feature parity across modern agent harnesses |
 | [ROADMAP.md](ROADMAP.md) | Planned platform and ecosystem work |
 | [GOVERNANCE.md](GOVERNANCE.md) | Decision and release governance |
 | [SUPPORT.md](SUPPORT.md) | Community support process |

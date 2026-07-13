@@ -5,6 +5,8 @@ import { writeFile } from "node:fs/promises";
 const output = process.argv[2];
 if (!output) throw new Error("Setup result path is required");
 
+const factoryName = await input({ message: "What should your factory be called?", default: "Factory AI" });
+const factoryPurpose = await input({ message: "What should this factory build or optimize for?", default: "Ship secure, reviewed software continuously" });
 const provider = await select({
   message: "Which model provider should the factory configure?",
   choices: [
@@ -23,4 +25,4 @@ if (provider !== "azure") {
 }
 const deployNow = await confirm({ message: "Deploy and start the runtime after storing credentials?", default: true });
 const telegram = await confirm({ message: "Enable Telegram remote objective intake?", default: false });
-await writeFile(output, `${JSON.stringify({ provider, location, githubOrg, awsRegion, bedrockBuilderModel, deployNow, telegram })}\n`, { mode: 0o600 });
+await writeFile(output, `${JSON.stringify({ factoryName, factoryPurpose, provider, location, githubOrg, awsRegion, bedrockBuilderModel, deployNow, telegram })}\n`, { mode: 0o600 });

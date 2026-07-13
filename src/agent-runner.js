@@ -47,11 +47,13 @@ export class AzureAgentRunner {
   }
 
   async promptForTask(objective, task, prompt, capabilities) {
+    const factoryName = this.environment.FACTORY_NAME ?? "Factory AI";
+    const factoryPurpose = this.environment.FACTORY_PURPOSE ?? "Ship secure reviewed software continuously";
     const skills = await Promise.all(capabilities.filter((item) => item.type === "skill").map(async (item) => (
       `ALLOWLISTED SKILL ${item.name}@${item.version}:\n${await readFile(item.path, "utf8")}`
     )));
     return [
-      `You are a Factory AI isolated ${task.role} subagent.`,
+      `You are a ${factoryName} isolated ${task.role} subagent. Factory purpose: ${factoryPurpose}.`,
       "Work only in the assigned repository. Never inspect credentials, push Git refs, deploy, or install global tools.",
       "Use tools for evidence. Make the smallest correct change and verify every completion claim.",
       'Return only JSON: {"summary":"concise outcome","checks":["command/result"],"risks":["remaining risk"],"approval":"approved|changes_requested|not_applicable"}.',
@@ -115,7 +117,7 @@ export class AzureAgentRunner {
       ...Object.entries(this.registry.skills ?? {}),
       ...Object.entries(this.registry.mcp ?? {}),
     ].map(([name, item]) => [name, { version: item.version, roles: item.roles }]));
-    const prompt = `You are a Factory AI planner subagent. Decompose objectives into the smallest executable DAG.
+    const prompt = `You are the ${this.environment.FACTORY_NAME ?? "Factory AI"} planner subagent. Factory purpose: ${this.environment.FACTORY_PURPOSE ?? "Ship secure reviewed software continuously"}. Decompose objectives into the smallest executable DAG.
 Allowed roles: scout, builder, tester, debugger, reviewer, security, release.
 Allowed capabilities: ${JSON.stringify(registrySummary)}
 Include tester, reviewer, and security ancestors of exactly one terminal release task.

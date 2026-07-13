@@ -10,6 +10,8 @@ const environmentSchema = z.object({
   AZURE_SUBSCRIPTION_ID: z.string().optional(),
   FACTORY_RESOURCE_GROUP: z.string().default("factory-ai-rg"),
   FACTORY_STORAGE_ACCOUNT: z.string().optional(),
+  FACTORY_NAME: z.string().min(1).max(80).default("Factory AI"),
+  FACTORY_PURPOSE: z.string().min(1).max(500).default("Ship secure reviewed software continuously"),
   FACTORY_STATE_DIR: z.string().default("/opt/agent-factory/state"),
   FACTORY_WORKSPACE_DIR: z.string().default("/opt/agent-factory/workspaces"),
   FACTORY_REGISTRY: z.string().default("/opt/agent-factory/app/config/capabilities.json"),
@@ -43,6 +45,8 @@ export function loadConfig(environment = process.env) {
     subscriptionId: env.AZURE_SUBSCRIPTION_ID,
     resourceGroup: env.FACTORY_RESOURCE_GROUP,
     storageAccount: env.FACTORY_STORAGE_ACCOUNT,
+    factoryName: env.FACTORY_NAME,
+    factoryPurpose: env.FACTORY_PURPOSE,
     secretNames: {
       TEXTVED_AZURE_API_KEY: env.AZURE_PRIMARY_API_KEY_SECRET,
       TEXTVED_AZURE_BASE_URL: env.AZURE_PRIMARY_BASE_URL_SECRET,

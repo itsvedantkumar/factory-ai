@@ -70,7 +70,7 @@ async function statusText() {
   const [{ states }, queue] = await Promise.all([loadLocalState(config.stateDir), loadQueueMetrics(config)]);
   const counts = {};
   for (const state of states) counts[state.status ?? "unknown"] = (counts[state.status ?? "unknown"] ?? 0) + 1;
-  return [`Factory AI`, `Queue: ${queue.active} active, ${queue.deadLetter} dead-letter`, `Objectives: ${Object.entries(counts).map(([name, count]) => `${name} ${count}`).join(", ") || "none"}`].join("\n");
+  return [config.factoryName, `Queue: ${queue.active} active, ${queue.deadLetter} dead-letter`, `Objectives: ${Object.entries(counts).map(([name, count]) => `${name} ${count}`).join(", ") || "none"}`].join("\n");
 }
 
 async function processUpdate(update) {
@@ -93,7 +93,7 @@ async function processUpdate(update) {
     }
     if (command.type === "objective") {
       const state = JSON.parse(await readFile(path.join(config.stateDir, command.objectiveId, "state.json"), "utf8"));
-      return reply(message.chat.id, formatObjectiveProgress(state));
+      return reply(message.chat.id, formatObjectiveProgress(state, config.factoryName));
     }
     const objective = objectiveFromTelegram(update.update_id, command);
     await sendMessage(sender, objective, objective.id);
@@ -111,7 +111,7 @@ async function notifyProgress() {
     let state;
     try { state = JSON.parse(await readFile(path.join(config.stateDir, objectiveId, "state.json"), "utf8")); }
     catch (error) { if (error.code === "ENOENT") continue; throw error; }
-    const text = formatObjectiveProgress(state);
+    const text = formatObjectiveProgress(state, config.factoryName);
     const digest = createHash("sha256").update(text).digest("hex");
     if (digest === subscription.lastDigest) continue;
     await reply(subscription.chatId, text);

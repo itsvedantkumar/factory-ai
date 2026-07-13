@@ -24,6 +24,8 @@ export function createOperator(environment = process.env) {
   const namespace = environment.FACTORY_SERVICE_BUS ?? "";
   const vault = environment.FACTORY_KEY_VAULT ?? "";
   const storageAccount = environment.FACTORY_STORAGE_ACCOUNT ?? "";
+  const factoryName = environment.FACTORY_NAME ?? "Factory AI";
+  const factoryPurpose = environment.FACTORY_PURPOSE ?? "Ship secure reviewed software continuously";
   const remote = async (script) => {
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try { return extractRunCommand(await command("az", ["vm", "run-command", "invoke", "--resource-group", resourceGroup, "--name", vm, "--command-id", "RunShellScript", "--scripts", script, "--query", "value[0].message", "--output", "tsv"])); }
@@ -68,7 +70,7 @@ export function createOperator(environment = process.env) {
       return command(path.join(root, "bin/factory"), [action]);
     },
     capabilities: async () => JSON.parse(await readFile(path.join(root, "config/capabilities.json"), "utf8")),
-    config: () => ({ resourceGroup, vm, namespace, vault, storageAccount, models: { scout: "GPT-5.4 nano", simpleBuilder: "Kimi K2.7-Code", builder: "GPT-5.5", tester: "GPT-5.4", critical: "GPT-5.6" } }),
+    config: () => ({ factoryName, factoryPurpose, resourceGroup, vm, namespace, vault, storageAccount, models: { scout: "GPT-5.4 nano", simpleBuilder: "Kimi K2.7-Code", builder: "GPT-5.5", tester: "GPT-5.4", critical: "GPT-5.6" } }),
     listSecrets: async () => withVault(async () => JSON.parse(await command("az", ["keyvault", "secret", "list", "--vault-name", vault, "--query", "[].{name:name,updated:attributes.updated}", "--output", "json"]))),
     setSecret: async (name, value) => withVault(async () => {
       if (!/^[A-Za-z0-9-]{1,127}$/.test(name) || !value) throw new Error("Valid secret name and value are required");

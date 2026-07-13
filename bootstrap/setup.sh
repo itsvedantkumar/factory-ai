@@ -44,6 +44,8 @@ for scanner_image in \
   semgrep/semgrep@sha256:183a149fb3e9700ab5294a7b4ab0241a826fd046bc8b721062fbea80fdfa438f; do
   docker pull "$scanner_image"
 done
+docker pull ollama/ollama@sha256:3d8a05e3432d50ea57594fabe971e46cc8fe963a0f9f8c40400bd56cd5388e47
+docker pull qdrant/qdrant@sha256:31407c0e8e32eb771b71718f1a4772e2ad47a07557917b21ac96792f40eb8007
 
 STATE_DEVICE=/dev/disk/azure/scsi1/lun0
 if [[ -b $STATE_DEVICE ]]; then
@@ -65,7 +67,8 @@ for secret_name in "${GITHUB_TOKEN_SECRET:-github-token}"; do
   az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" --query id --output none
 done
 
-install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/home /opt/agent-factory/state/memory /opt/agent-factory/state/telegram /opt/agent-factory/workspaces /opt/agent-factory/logs
+install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/home /opt/agent-factory/state/memory /opt/agent-factory/state/telegram /opt/agent-factory/state/retrieval /opt/agent-factory/workspaces /opt/agent-factory/logs
+install -d -o root -g root -m 0750 /opt/agent-factory/state/qdrant /opt/agent-factory/state/ollama
 install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
 {
   printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"
@@ -81,10 +84,14 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
   printf 'FACTORY_WORKER_IMAGE=%s\n' "$FACTORY_WORKER_IMAGE"
   printf 'FACTORY_VERSION=%s\n' "$factory_version"
+  printf 'FACTORY_NAME=%s\n' "${FACTORY_NAME:-Factory AI}"
+  printf 'FACTORY_PURPOSE=%s\n' "${FACTORY_PURPOSE:-Ship secure reviewed software continuously}"
   printf 'MAX_CONCURRENCY=3\n'
   printf 'TASK_TIMEOUT_MS=1800000\n'
   printf 'MAX_DELIVERY_COUNT=8\n'
   printf 'FACTORY_VERSION=%s\n' "$factory_version"
+  printf 'FACTORY_NAME=%s\n' "${FACTORY_NAME:-Factory AI}"
+  printf 'FACTORY_PURPOSE=%s\n' "${FACTORY_PURPOSE:-Ship secure reviewed software continuously}"
   [[ -n ${AWS_REGION:-} ]] && printf 'AWS_REGION=%s\nAWS_DEFAULT_REGION=%s\n' "$AWS_REGION" "$AWS_REGION"
   for variable in FACTORY_MODEL_SCOUT FACTORY_MODEL_PLANNER FACTORY_MODEL_BUILDER FACTORY_MODEL_TESTER FACTORY_MODEL_DEBUGGER FACTORY_MODEL_REVIEWER FACTORY_MODEL_SECURITY FACTORY_MODEL_RELEASE; do
     [[ -n ${!variable:-} ]] && printf '%s=%s\n' "$variable" "${!variable}"
@@ -124,6 +131,8 @@ install -m 0644 "$APP_DIR/bootstrap/factory-ai-update.service" /etc/systemd/syst
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-update.timer" /etc/systemd/system/factory-ai-update.timer
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-snapshot.service" /etc/systemd/system/factory-ai-snapshot.service
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-snapshot.timer" /etc/systemd/system/factory-ai-snapshot.timer
+install -m 0644 "$APP_DIR/bootstrap/factory-ai-qdrant.service" /etc/systemd/system/factory-ai-qdrant.service
+install -m 0644 "$APP_DIR/bootstrap/factory-ai-ollama.service" /etc/systemd/system/factory-ai-ollama.service
 systemctl daemon-reload
 systemctl enable --now agent-factory-worker.service
 systemctl enable --now agent-factory-control.service
@@ -132,5 +141,8 @@ systemctl enable --now agent-factory-reporter.timer
 systemctl enable --now agent-factory-telegram.service
 systemctl enable --now factory-ai-update.timer
 systemctl enable --now factory-ai-snapshot.timer
+systemctl enable --now factory-ai-qdrant.service factory-ai-ollama.service
+for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
+docker exec factory-ai-ollama ollama pull embeddinggemma
 systemctl restart agent-factory-control.service agent-factory-worker.service agent-factory-release.service
 echo "Agent factory worker installed"

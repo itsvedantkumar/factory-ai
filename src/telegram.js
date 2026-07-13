@@ -38,12 +38,12 @@ export function objectiveFromTelegram(updateId, command, now = new Date()) {
   };
 }
 
-export function formatObjectiveProgress(state) {
+export function formatObjectiveProgress(state, factoryName = "Factory AI") {
   const tasks = state.tasks ?? [];
   const results = state.results ?? {};
   const complete = tasks.filter((task) => results[task.id]?.status === "succeeded").length;
   const lines = [
-    `Factory AI objective ${state.objective?.id ?? "unknown"}`,
+    `${factoryName} objective ${state.objective?.id ?? "unknown"}`,
     state.objective?.objective ?? "",
     `Status: ${state.status ?? "unknown"}`,
     `${complete}/${tasks.length} tasks complete`,

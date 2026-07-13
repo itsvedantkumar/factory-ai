@@ -9,6 +9,7 @@ import { AgentExecutor } from "./agent-executor.js";
 import { sendMessage } from "./bus.js";
 import { ContainerAgentRunner } from "./container-runner.js";
 import { ScannerSuite } from "./scanner-suite.js";
+import { LocalRetriever } from "./retriever.js";
 
 process.title = "factory-ai-worker";
 const config = loadConfig();
@@ -20,6 +21,7 @@ const executor = new AgentExecutor({
   workspaces: new WorkspaceManager(config.workspaceDir, config.timeoutMs),
   agentRunner: new ContainerAgentRunner({ image: config.workerImage, memoryDir: config.memoryDir, timeoutMs: config.timeoutMs }),
   scannerSuite: new ScannerSuite(),
+  retriever: new LocalRetriever({ stateDir: config.stateDir }),
   sendControl,
 });
 

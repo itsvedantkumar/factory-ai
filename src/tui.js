@@ -5,10 +5,12 @@ import { createOperator } from "./operator.js";
 if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("Factory AI UI requires an interactive terminal");
 
 const operator = createOperator();
-const screen = blessed.screen({ smartCSR: true, title: "Factory AI", fullUnicode: true, dockBorders: true });
+const factoryName = process.env.FACTORY_NAME ?? "Factory AI";
+const factoryPurpose = process.env.FACTORY_PURPOSE ?? "Ship secure reviewed software continuously";
+const screen = blessed.screen({ smartCSR: true, title: factoryName, fullUnicode: true, dockBorders: true });
 const colors = { bg: "#0d0f12", panel: "#15191f", border: "#303743", text: "#d9e0e8", muted: "#7f8b99", accent: "#78dba9", warn: "#efc46b", danger: "#ef7d7d", blue: "#77a8ff" };
 
-blessed.box({ parent: screen, top: 0, left: 0, width: "100%", height: 3, tags: true, style: { bg: colors.panel, fg: colors.text }, content: "  {bold}{#78dba9-fg}FACTORY AI{/}  {/bold}  private coding organization" });
+blessed.box({ parent: screen, top: 0, left: 0, width: "100%", height: 3, tags: true, style: { bg: colors.panel, fg: colors.text }, content: `  {bold}{#78dba9-fg}${factoryName.toUpperCase()}{/}  {/bold}  ${factoryPurpose}` });
 const menu = blessed.list({ parent: screen, top: 3, left: 0, width: 23, bottom: 2, border: { type: "line" }, label: " Navigate ", keys: true, mouse: true, vi: true, items: ["Overview", "Objectives", "Agents", "Secrets", "Capabilities", "Logs", "Settings"], style: { bg: colors.panel, fg: colors.text, border: { fg: colors.border }, selected: { bg: colors.accent, fg: "#07130d", bold: true }, item: { fg: colors.text } } });
 const main = blessed.box({ parent: screen, top: 3, left: 23, right: 0, bottom: 2, border: { type: "line" }, label: " Overview ", tags: true, scrollable: true, alwaysScroll: true, keys: true, mouse: true, vi: true, scrollbar: { ch: "▐", style: { fg: colors.accent } }, padding: { left: 2, right: 2 }, style: { bg: colors.bg, fg: colors.text, border: { fg: colors.border } } });
 const footer = blessed.box({ parent: screen, bottom: 0, left: 0, width: "100%", height: 2, tags: true, style: { bg: colors.panel, fg: colors.muted }, content: "  {bold}n{/} new objective   {bold}r{/} refresh   {bold}a{/} add secret   {bold}p/u{/} pause/resume   {bold}q{/} quit" });

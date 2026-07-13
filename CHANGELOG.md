@@ -11,6 +11,14 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 - Azure and Bedrock provider wizard.
 - Durable evaluation, analytics, scaling, policy, extension, and recovery roadmap.
 
+## [1.4.0] - 2026-07-13
+
+### Added
+
+- Free local semantic code retrieval with pinned Ollama embeddings and retained Qdrant vectors.
+- Commit-aware indexing, bounded chunking, top-k context injection, and failure fallback.
+- Modern agent-harness capability matrix and explicit completion criteria.
+
 ## [1.3.0] - 2026-07-13
 
 ### Added
