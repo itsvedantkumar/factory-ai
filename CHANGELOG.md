@@ -4,6 +4,12 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-07-13
+
+### Added
+
+- `factory update check|now|status|enable|disable` for local version checks, immediate verified Azure/local updates, and explicit six-hour timer control.
+
 ## [1.6.0] - 2026-07-13
 
 ### Added

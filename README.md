@@ -74,6 +74,10 @@ factory ui
 | `factory workspace show NAME` | Inspect one workspace |
 | `factory workspace remove NAME` | Remove a catalog entry without deleting repository files |
 | `factory submit WORKSPACE "OBJECTIVE"` | Send one CEO objective using a workspace name; owner/repo remains supported |
+| `factory update check` | Compare the installed CLI with the latest stable npm release |
+| `factory update now` | Run verified Azure updater immediately and update the local CLI |
+| `factory update status` | Show automatic-update timer and deployed runtime version |
+| `factory update enable\|disable` | Control the six-hour verified automatic-update timer |
 | `factory issue OWNER/REPO NUMBER` | Turn a GitHub issue into a tracked objective |
 | `factory telegram configure` | Configure allowlisted Telegram remote intake |
 | `factory dashboard` | Objectives, agents, models, queue, DLQ, and Azure cost |

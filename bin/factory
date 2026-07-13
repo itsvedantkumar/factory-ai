@@ -30,6 +30,7 @@ usage() {
     '  telegram status | configure | start | stop' \
     '  workspace list | import PATH|OWNER/REPO [--name NAME] | show NAME | remove NAME' \
     '  submit <workspace|owner/repo> <objective>' \
+    '  update check | now | status | enable | disable' \
     '  issue <owner/repo> <number>' \
     '  ui' \
     '  init <local-project-path>' \
@@ -46,7 +47,7 @@ apply_runtime_model() {
   script="set -euo pipefail; exec 9>/run/lock/factory-ai-config.lock; flock -x 9; first=/etc/agent-factory.env; second=/etc/agent-factory-control.env; backup_first=\$(mktemp); backup_second=\$(mktemp); cp --preserve=mode,ownership \"\$first\" \"\$backup_first\"; cp --preserve=mode,ownership \"\$second\" \"\$backup_second\"; rollback() { install -m 0600 -o root -g root \"\$backup_first\" \"\$first\"; install -m 0600 -o root -g root \"\$backup_second\" \"\$second\"; systemctl restart agent-factory-control agent-factory-worker agent-factory-release || true; rm -f \"\$backup_first\" \"\$backup_second\"; }; trap rollback ERR TERM INT; for file in \"\$first\" \"\$second\"; do tmp=\$(mktemp); grep -v '^${variable}=' \"\$file\" > \"\$tmp\" || true; if [[ '$mode' == set ]]; then printf '${variable}=%s\\n' '$value' >> \"\$tmp\"; fi; install -m 0600 -o root -g root \"\$tmp\" \"\$file\"; rm -f \"\$tmp\"; done; systemctl restart agent-factory-control agent-factory-worker agent-factory-release; systemctl is-active --quiet agent-factory-control agent-factory-worker agent-factory-release; trap - ERR TERM INT; rm -f \"\$backup_first\" \"\$backup_second\""
   printf -v script 'bash -c %q' "$script"
   settings=$(jq -n --arg command "$script" '{commandToExecute:$command}')
-  az vm extension set --resource-group "$RESOURCE_GROUP" --vm-name "$VM" --name FactoryAIConfigure \
+  az vm extension set --resource-group "$RESOURCE_GROUP" --vm-name "$VM" --name CustomScript \
     --publisher Microsoft.Azure.Extensions --version 2.1 --force-update --protected-settings "$settings" --output none
 }
 
@@ -76,7 +77,43 @@ configure_model_transaction() {
   trap - EXIT INT TERM
 }
 
+vm_extension_command() {
+  local script=$1 settings
+  printf -v script 'bash -c %q' "$script"
+  settings=$(jq -n --arg command "$script" '{commandToExecute:$command}')
+  az vm extension set --resource-group "$RESOURCE_GROUP" --vm-name "$VM" --name CustomScript \
+    --publisher Microsoft.Azure.Extensions --version 2.1 --force-update --protected-settings "$settings" --output none
+  az vm extension show --resource-group "$RESOURCE_GROUP" --vm-name "$VM" --name CustomScript --instance-view --query 'instanceView.statuses[0].message' --output tsv
+}
+
 case "$command" in
+  update)
+    action=${1:-check}
+    case "$action" in
+      check)
+        current=$(node -p "require('$FACTORY_ROOT/package.json').version")
+        latest=$(npm view factory-ai version)
+        printf 'Local %s · latest %s\n' "$current" "$latest"
+        ;;
+      now)
+        vm_extension_command 'bash /opt/agent-factory/app/bootstrap/auto-update.sh'
+        latest=$(npm view factory-ai version)
+        current=$(node -p "require('$FACTORY_ROOT/package.json').version")
+        if [[ $current != "$latest" ]]; then npm install --global "factory-ai@$latest"; fi
+        printf 'Factory AI is current at %s locally and Azure update verification completed.\n' "$latest"
+        ;;
+      status)
+        vm_extension_command 'set -e; printf "timer enabled: "; systemctl is-enabled factory-ai-update.timer; printf "timer active: "; systemctl is-active factory-ai-update.timer; jq -c . /opt/agent-factory/state/runtime-version.json'
+        ;;
+      enable)
+        vm_extension_command 'systemctl enable --now factory-ai-update.timer; systemctl is-active factory-ai-update.timer'
+        ;;
+      disable)
+        vm_extension_command 'systemctl disable --now factory-ai-update.timer; systemctl is-active factory-ai-update.timer >/dev/null && exit 1 || true; printf "automatic updates disabled\n"'
+        ;;
+      *) printf 'Usage: factory update check | now | status | enable | disable\n' >&2; exit 2 ;;
+    esac
+    ;;
   acp)
     request=${1:?ACP request JSON file required}
     SERVICE_BUS_NAMESPACE="$NAMESPACE" CONTROL_QUEUE=control-events FACTORY_ACP_ENABLED=true exec node "$FACTORY_ROOT/src/acp-cli.js" "$request"
