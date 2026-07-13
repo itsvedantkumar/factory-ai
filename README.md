@@ -96,7 +96,7 @@ factory ui
 | `factory secret set NAME` | Store a credential in global Key Vault |
 | `factory github connect ORG` | Connect GitHub Enterprise credentials |
 
-Inside `factory ui`, press `:` to enter any Factory command without the `factory` prefix. Use `↑/↓` for command history. Shortcuts: `n` submit, `i` import workspace, `a` set secret, `y/x` approve or deny, `p/u` pause or resume, `?` help, and `q` quit. Command output and errors remain visible inside the native TUI.
+Inside `factory ui`, select a workspace from the persistent left sidebar with `[`/`]`; Dashboard, Objectives, and Agents are scoped to it. Settings contains secrets, logs, models, runtime, and capabilities. Press `:` or Enter to focus the dedicated command line and enter any Factory command without the `factory` prefix. Use `↑/↓` for command history and `Ctrl+↑/↓` for console scrollback. Shortcuts: `n` submit to the selected workspace, `i` import, `a` set secret, `y/x` approve or deny, `p/u` pause or resume, `?` help, `Ctrl+L` clear console, and `q` quit.
 
 ## Architecture
 

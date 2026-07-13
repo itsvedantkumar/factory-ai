@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -110,24 +111,26 @@ type commandResultMsg struct {
 }
 
 type model struct {
-	client         *azblob.Client
-	factoryName    string
-	purpose        string
-	width          int
-	height         int
-	tab            int
-	scroll         int
-	dashboard      dashboard
-	logs           string
-	workspaces     []workspace
-	workspaceErr   string
-	loading        bool
-	err            error
-	commandMode    bool
-	commandInput   string
-	commandOutput  string
-	commandHistory []string
-	historyIndex   int
+	client            *azblob.Client
+	factoryName       string
+	purpose           string
+	width             int
+	height            int
+	tab               int
+	scroll            int
+	dashboard         dashboard
+	logs              string
+	workspaces        []workspace
+	workspaceErr      string
+	selectedWorkspace string
+	loading           bool
+	err               error
+	commandMode       bool
+	commandInput      string
+	commandOutput     string
+	commandHistory    []string
+	historyIndex      int
+	consoleScroll     int
 }
 
 var (
@@ -138,7 +141,7 @@ var (
 	muted  = lipgloss.Color("#7F8B99")
 	panel  = lipgloss.Color("#15191F")
 	border = lipgloss.Color("#303743")
-	tabs   = []string{"Overview", "Workspaces", "Objectives", "Agents", "Secrets", "Capabilities", "Logs", "Settings"}
+	tabs   = []string{"Dashboard", "Objectives", "Agents", "Settings"}
 	ansi   = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)`)
 )
 
@@ -406,13 +409,32 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.scroll += 10
 		case "home":
 			m.scroll = 0
-		case ":", "o":
+		case "[", "shift+up":
+			if index := m.selectedIndex(); index > 0 {
+				m.selectedWorkspace = m.workspaces[index-1].Name
+				m.scroll = 0
+			}
+		case "]", "shift+down":
+			if index := m.selectedIndex(); index >= 0 && index < len(m.workspaces)-1 {
+				m.selectedWorkspace = m.workspaces[index+1].Name
+				m.scroll = 0
+			}
+		case "ctrl+up":
+			if m.consoleScroll > 0 {
+				m.consoleScroll--
+			}
+		case "ctrl+down":
+			m.consoleScroll++
+		case ":", "/", "enter", "o":
 			m.commandMode = true
 			m.commandInput = ""
 			m.historyIndex = len(m.commandHistory)
 		case "n":
 			m.commandMode = true
 			m.commandInput = "submit "
+			if selected := m.selected(); selected != nil {
+				m.commandInput += selected.Name + " "
+			}
 			m.historyIndex = len(m.commandHistory)
 		case "i":
 			m.commandMode = true
@@ -439,11 +461,15 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			m.loading = true
 			return m, executeFactoryCommand([]string{"--help"})
+		case "ctrl+l", "esc":
+			m.commandOutput = ""
+			m.consoleScroll = 0
+			m.err = nil
 		case "r":
 			m.loading = true
 			return m, fetchCmd(m.client)
 		default:
-			if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '8' {
+			if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '4' {
 				m.tab = int(msg.String()[0] - '1')
 				m.scroll = 0
 			}
@@ -455,16 +481,24 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.dashboard, m.logs, m.workspaces, m.workspaceErr = msg.dashboard, msg.logs, msg.workspaces, msg.workspaceErr
+			if len(m.workspaces) == 0 {
+				m.selectedWorkspace = ""
+			} else if m.selected() == nil {
+				m.selectedWorkspace = m.workspaces[0].Name
+			}
 		}
 	case commandResultMsg:
 		m.loading = false
-		m.err = msg.err
+		m.err = nil
 		result := strings.TrimSpace(clean(msg.output))
 		if msg.err != nil && result == "" {
 			result = msg.err.Error()
 		}
 		m.commandOutput = fmt.Sprintf("$ %s\n%s", clean(msg.command), result)
-		m.scroll = int(^uint(0) >> 1)
+		m.consoleScroll = len(strings.Split(m.commandOutput, "\n")) - 4
+		if m.consoleScroll < 0 {
+			m.consoleScroll = 0
+		}
 		return m, fetchCmd(m.client)
 	case tickMsg:
 		if !m.loading {
@@ -499,15 +533,58 @@ func trim(value string, max int) string {
 	return value
 }
 
+func normalizeRepository(value string) string {
+	return strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(value), "https://github.com/"), ".git")
+}
+
+func (m model) selected() *workspace {
+	for index := range m.workspaces {
+		if m.workspaces[index].Name == m.selectedWorkspace {
+			return &m.workspaces[index]
+		}
+	}
+	return nil
+}
+
+func (m model) selectedIndex() int {
+	for index, item := range m.workspaces {
+		if item.Name == m.selectedWorkspace {
+			return index
+		}
+	}
+	return -1
+}
+
+func (m model) visibleObjectives() []objective {
+	selected := m.selected()
+	if selected == nil {
+		return nil
+	}
+	repository := normalizeRepository(selected.Repository)
+	result := []objective{}
+	for _, item := range m.dashboard.Objectives {
+		if normalizeRepository(item.Repository) == repository {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 func (m model) overview() string {
 	cost := "unavailable"
 	if m.dashboard.Cost != nil {
 		cost = fmt.Sprintf("%s %.2f", m.dashboard.Cost.Currency, m.dashboard.Cost.MonthToDate)
 	}
+	objectives := m.visibleObjectives()
+	countMap := map[string]int{}
+	for _, item := range objectives {
+		countMap[item.Status]++
+	}
 	counts := []string{}
-	for key, value := range m.dashboard.Summary.Objectives {
+	for key, value := range countMap {
 		counts = append(counts, fmt.Sprintf("%s %d", key, value))
 	}
+	sort.Strings(counts)
 	in, cached, out := 0, 0, 0
 	for _, value := range m.dashboard.ModelUsage {
 		in += value.InputTokens
@@ -515,8 +592,8 @@ func (m model) overview() string {
 		out += value.OutputTokens
 	}
 	value := fmt.Sprintf("%s\n\nHealth       %s\nQueue        %s\nDead letters %d\nAzure MTD    %s\nObjectives   %s\nTokens       %d in · %d cached · %d out\n\n%s\n\n", lipgloss.NewStyle().Bold(true).Render("SYSTEM"), badge(m.dashboard.Health.Status), lipgloss.NewStyle().Foreground(accent).Render(fmt.Sprint(m.dashboard.Queue.Active)), m.dashboard.Queue.DeadLetter, lipgloss.NewStyle().Foreground(warn).Render(cost), strings.Join(counts, "  "), in, cached, out, lipgloss.NewStyle().Bold(true).Render("RECENT OBJECTIVES"))
-	for index := len(m.dashboard.Objectives) - 1; index >= 0 && index >= len(m.dashboard.Objectives)-8; index-- {
-		item := m.dashboard.Objectives[index]
+	for index := len(objectives) - 1; index >= 0 && index >= len(objectives)-8; index-- {
+		item := objectives[index]
 		value += fmt.Sprintf("%s  %s\n    %s\n\n", badge(item.Status), trim(item.Objective, 90), lipgloss.NewStyle().Foreground(muted).Render(clean(item.Repository)))
 	}
 	return value
@@ -524,8 +601,9 @@ func (m model) overview() string {
 
 func (m model) objectives() string {
 	var value strings.Builder
-	for index := len(m.dashboard.Objectives) - 1; index >= 0; index-- {
-		item := m.dashboard.Objectives[index]
+	objectives := m.visibleObjectives()
+	for index := len(objectives) - 1; index >= 0; index-- {
+		item := objectives[index]
 		fmt.Fprintf(&value, "%s  %s\n%s\n", badge(item.Status), trim(item.Objective, 100), lipgloss.NewStyle().Foreground(muted).Render(clean(item.ID)))
 		for _, task := range item.Tasks {
 			state := task.State
@@ -554,7 +632,7 @@ func (m model) objectives() string {
 
 func (m model) agents() string {
 	var value strings.Builder
-	for _, item := range m.dashboard.Objectives {
+	for _, item := range m.visibleObjectives() {
 		for _, task := range item.Tasks {
 			if task.State == "succeeded" {
 				continue
@@ -586,47 +664,80 @@ func (m model) agents() string {
 	return value.String()
 }
 
-func (m model) workspaceList() string {
+func (m model) sidebar(maxLines int) string {
+	var value strings.Builder
+	value.WriteString(lipgloss.NewStyle().Bold(true).Render("WORKSPACES") + "\n\n")
 	if m.workspaceErr != "" {
-		return "Workspace catalog unavailable: " + clean(m.workspaceErr)
+		value.WriteString(lipgloss.NewStyle().Foreground(danger).Render("Catalog unavailable") + "\n")
 	}
 	if len(m.workspaces) == 0 {
-		return "No workspaces imported. Press i and enter a local path or owner/repo."
+		value.WriteString("No workspaces\n\nPress i to import")
 	}
+	available := maxLines - 7
+	if available < 1 {
+		available = 1
+	}
+	start := 0
+	if index := m.selectedIndex(); index >= available {
+		start = index - available + 1
+	}
+	end := start + available
+	if end > len(m.workspaces) {
+		end = len(m.workspaces)
+	}
+	if start > 0 {
+		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("  ↑ more") + "\n")
+	}
+	for _, item := range m.workspaces[start:end] {
+		marker := "  "
+		style := lipgloss.NewStyle().Foreground(muted)
+		if item.Name == m.selectedWorkspace {
+			marker = "› "
+			style = style.Foreground(accent).Bold(true)
+		}
+		value.WriteString(style.Render(marker+trim(item.Name, 20)) + "\n")
+	}
+	if end < len(m.workspaces) {
+		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("  ↓ more") + "\n")
+	}
+	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("[ / ] select\ni import\nn new objective"))
+	return value.String()
+}
+
+func (m model) settings() string {
 	var value strings.Builder
-	value.WriteString("IMPORTED WORKSPACES\n\n")
-	for _, item := range m.workspaces {
-		fmt.Fprintf(&value, "%s  %s\n  %s · %s\n\n", lipgloss.NewStyle().Foreground(accent).Bold(true).Render(clean(item.Name)), clean(item.Repository), clean(item.LocalPath), clean(item.BaseBranch))
+	value.WriteString("RUNTIME\n")
+	fmt.Fprintf(&value, "  Name       %s\n  Purpose    %s\n  Storage    Azure Blob\n  Refresh    15 seconds\n\n", clean(m.factoryName), clean(m.purpose))
+	value.WriteString("MODELS\n  :models show\n  :models set ROLE PROVIDER/MODEL\n\nSECRETS (values hidden)\n")
+	for _, item := range m.dashboard.Secrets {
+		fmt.Fprintf(&value, "  ● %-36s %s\n", clean(item.Name), clean(item.Updated))
 	}
+	if len(m.dashboard.Secrets) == 0 {
+		value.WriteString("  No secret metadata available\n")
+	}
+	value.WriteString("\nCAPABILITIES\n  Skills, MCP servers, scanners, ACP, and signed extensions\n  :extension verify MANIFEST ARTIFACT PUBLIC_KEY\n")
+	value.WriteString("\nRECENT SERVICE LOGS\n")
+	lines := strings.Split(clean(m.logs), "\n")
+	if len(lines) > 30 {
+		lines = lines[len(lines)-30:]
+	}
+	value.WriteString(strings.Join(lines, "\n"))
 	return value.String()
 }
 
 func (m model) body() string {
+	if m.tab < 3 && m.selected() == nil {
+		return "SELECT A WORKSPACE\n\nImport one with i, then select it from the left sidebar.\nObjectives and agents are scoped to the selected workspace."
+	}
 	switch m.tab {
 	case 0:
 		return m.overview()
 	case 1:
-		return m.workspaceList()
-	case 2:
 		return m.objectives()
-	case 3:
+	case 2:
 		return m.agents()
-	case 4:
-		var b strings.Builder
-		b.WriteString("GLOBAL KEY VAULT\nValues are never displayed.\n\n")
-		for _, item := range m.dashboard.Secrets {
-			fmt.Fprintf(&b, "● %-55s %s\n", clean(item.Name), clean(item.Updated))
-		}
-		return b.String()
-	case 5:
-		return "CURATED CAPABILITIES\n\nSkills: /goal, /loop, TDD, debugging, verification, security, release discipline\nMCP: Context7, Playwright, knowledge-graph memory\nScanners: Trivy, Gitleaks, OSV-Scanner, Semgrep"
-	case 6:
-		if m.logs == "" {
-			return "No log snapshot available."
-		}
-		return clean(m.logs)
 	default:
-		return fmt.Sprintf("FACTORY SETTINGS\n\nName     %s\nPurpose  %s\nStorage  Azure Blob snapshot\nRefresh  15 seconds\n\nUse `factory configure models` or `factory models set ROLE PROVIDER/MODEL` to change routing.", clean(m.factoryName), clean(m.purpose))
+		return m.settings()
 	}
 }
 
@@ -636,6 +747,9 @@ func (m model) View() string {
 		width = 80
 	}
 	header := lipgloss.NewStyle().Bold(true).Foreground(accent).Render(strings.ToUpper(clean(m.factoryName))) + "  " + lipgloss.NewStyle().Foreground(muted).Render(clean(m.purpose))
+	if selected := m.selected(); selected != nil {
+		header += "  " + lipgloss.NewStyle().Foreground(blue).Render("/ "+clean(selected.Name))
+	}
 	tabValues := []string{}
 	for index, value := range tabs {
 		style := lipgloss.NewStyle().Padding(0, 1).Foreground(muted)
@@ -645,16 +759,21 @@ func (m model) View() string {
 		tabValues = append(tabValues, style.Render(fmt.Sprintf("%d %s", index+1, value)))
 	}
 	tabLine := lipgloss.JoinHorizontal(lipgloss.Top, tabValues...)
-	height := m.height - 6
-	if height < 10 {
-		height = 10
-	}
-	body := m.body()
+	consoleHeight := 0
 	if m.commandOutput != "" {
-		body += "\n\nCOMMAND OUTPUT\n" + m.commandOutput
+		consoleHeight = 7
 	}
-	lines := strings.Split(body, "\n")
-	visible := height - 2
+	mainHeight := m.height - 8 - consoleHeight
+	if mainHeight < 10 {
+		mainHeight = 10
+	}
+	sidebarWidth := 26
+	contentWidth := width - sidebarWidth - 5
+	if contentWidth < 50 {
+		contentWidth = 50
+	}
+	lines := strings.Split(m.body(), "\n")
+	visible := mainHeight - 2
 	maxScroll := len(lines) - visible
 	if maxScroll < 0 {
 		maxScroll = 0
@@ -667,17 +786,42 @@ func (m model) View() string {
 	if end > len(lines) {
 		end = len(lines)
 	}
-	content := lipgloss.NewStyle().Width(width-4).Height(height).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1, 2).Render(strings.Join(lines[scroll:end], "\n"))
-	footer := ": command  ·  n submit  ·  i import  ·  ? help  ·  q quit"
+	sidebar := lipgloss.NewStyle().Width(sidebarWidth).Height(mainHeight).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(m.sidebar(mainHeight - 2))
+	content := lipgloss.NewStyle().Width(contentWidth).Height(mainHeight).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1, 2).Render(strings.Join(lines[scroll:end], "\n"))
+	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
+	console := ""
+	if m.commandOutput != "" {
+		consoleLines := strings.Split(clean(m.commandOutput), "\n")
+		maxConsoleScroll := len(consoleLines) - 4
+		if maxConsoleScroll < 0 {
+			maxConsoleScroll = 0
+		}
+		consoleScroll := m.consoleScroll
+		if consoleScroll > maxConsoleScroll {
+			consoleScroll = maxConsoleScroll
+		}
+		consoleEnd := consoleScroll + 4
+		if consoleEnd > len(consoleLines) {
+			consoleEnd = len(consoleLines)
+		}
+		console = lipgloss.NewStyle().Width(width-2).Height(5).Border(lipgloss.RoundedBorder()).BorderForeground(muted).Padding(0, 1).Render(fmt.Sprintf("CONSOLE · ctrl+↑/↓ scroll · ctrl+l clear  [%d-%d/%d]\n%s", consoleScroll+1, consoleEnd, len(consoleLines), strings.Join(consoleLines[consoleScroll:consoleEnd], "\n")))
+	}
+	prompt := "Press : to enter a Factory command  ·  n submit  ·  i import  ·  ? help  ·  q quit"
 	if m.commandMode {
-		footer = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(": ") + clean(m.commandInput) + "█"
+		prompt = lipgloss.NewStyle().Foreground(accent).Bold(true).Render("› ") + clean(m.commandInput) + "█"
 	} else if m.loading {
-		footer = "Refreshing snapshot…"
+		prompt = "Refreshing Factory state…"
 	}
 	if m.err != nil && !m.commandMode {
-		footer = lipgloss.NewStyle().Foreground(danger).Render(m.err.Error())
+		prompt = lipgloss.NewStyle().Foreground(danger).Render(m.err.Error())
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, header, tabLine, content, lipgloss.NewStyle().Foreground(muted).Render(footer))
+	commandLine := lipgloss.NewStyle().Width(width-2).Height(1).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(0, 1).Render(prompt)
+	parts := []string{header, tabLine, main}
+	if console != "" {
+		parts = append(parts, console)
+	}
+	parts = append(parts, commandLine)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func main() {

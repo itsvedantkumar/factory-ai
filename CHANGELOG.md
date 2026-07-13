@@ -4,6 +4,14 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-07-13
+
+### Changed
+
+- Redesigned the native TUI around a persistent workspace selector with workspace-scoped Dashboard, Objectives, and Agents pages.
+- Consolidated secrets, logs, models, runtime, and capabilities under Settings.
+- Added dedicated bounded command-console and always-visible command-line panes with scrollback, clear controls, history, inline errors, and selected-workspace submit shortcuts.
+
 ## [2.0.0] - 2026-07-13
 
 ### Changed
