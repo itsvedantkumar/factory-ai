@@ -13,6 +13,12 @@ test("accepts a bounded CEO objective", () => {
   assert.equal(value.baseBranch, "main");
 });
 
+test("accepts bounded imported workspace context but rejects oversized context", () => {
+  const value = { id: "objective1", type: "objective", objective: "Ship safely", repository: "https://github.com/acme/app.git", baseBranch: "main", workspaceContext: "LOCAL_POLICY" };
+  assert.equal(parseObjective(value).workspaceContext, "LOCAL_POLICY");
+  assert.throws(() => parseObjective({ ...value, workspaceContext: "x".repeat(20_001) }));
+});
+
 test("rejects unsafe repository schemes and extra fields", () => {
   assert.throws(() => parseObjective({
     id: "01J0123456789ABCDEFGHJKMNPQ",

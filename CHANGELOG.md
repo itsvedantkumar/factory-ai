@@ -4,6 +4,12 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-13
+
+### Added
+
+- Persistent Conductor-style workspace catalog with local/GitHub imports, managed clones, stable names, default branches, project initialization, CLI commands, direct Service Bus submission, and workspace views in both TUIs.
+
 ## [1.5.3] - 2026-07-13
 
 ### Fixed

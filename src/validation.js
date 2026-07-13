@@ -14,6 +14,7 @@ const objectiveSchema = z.object({
   objective: z.string().trim().min(3).max(12_000),
   repository,
   baseBranch: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/).default("main"),
+  workspaceContext: z.string().max(20_000).optional(),
   createdAt: z.string().datetime().optional(),
 }).strict();
 

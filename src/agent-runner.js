@@ -68,6 +68,7 @@ export class AzureAgentRunner {
       prompt,
       ...skills,
       repositoryInstructions,
+      objective.workspaceContext ? `IMPORTED WORKSPACE CONTEXT\n${objective.workspaceContext}` : "",
     ].join("\n\n");
   }
 
@@ -146,6 +147,7 @@ ${plannerSkills.join("\n\n")}
 ${repositoryInstructions}
 
 Objective: ${objective.objective}
+${objective.workspaceContext ? `Imported workspace context: ${objective.workspaceContext}` : ""}
 Verified prior project context: ${JSON.stringify(projectContext).slice(0, 12000)}`;
     const mcp = await connectMcpTools(plannerCapabilities);
     try {

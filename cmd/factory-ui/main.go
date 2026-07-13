@@ -50,6 +50,13 @@ type objective struct {
 	Blocker     string `json:"blocker"`
 }
 
+type workspace struct {
+	Name       string `json:"name"`
+	Repository string `json:"repository"`
+	LocalPath  string `json:"localPath"`
+	BaseBranch string `json:"baseBranch"`
+}
+
 type usage struct {
 	Tasks             int `json:"tasks"`
 	InputTokens       int `json:"inputTokens"`
@@ -82,25 +89,29 @@ type dashboard struct {
 }
 
 type snapshotMsg struct {
-	dashboard dashboard
-	logs      string
-	err       error
+	dashboard    dashboard
+	logs         string
+	workspaces   []workspace
+	workspaceErr string
+	err          error
 }
 type tickMsg time.Time
 type resumeMsg struct{ err error }
 
 type model struct {
-	client      *azblob.Client
-	factoryName string
-	purpose     string
-	width       int
-	height      int
-	tab         int
-	scroll      int
-	dashboard   dashboard
-	logs        string
-	loading     bool
-	err         error
+	client       *azblob.Client
+	factoryName  string
+	purpose      string
+	width        int
+	height       int
+	tab          int
+	scroll       int
+	dashboard    dashboard
+	logs         string
+	workspaces   []workspace
+	workspaceErr string
+	loading      bool
+	err          error
 }
 
 var (
@@ -111,7 +122,7 @@ var (
 	muted  = lipgloss.Color("#7F8B99")
 	panel  = lipgloss.Color("#15191F")
 	border = lipgloss.Color("#303743")
-	tabs   = []string{"Overview", "Objectives", "Agents", "Secrets", "Capabilities", "Logs", "Settings"}
+	tabs   = []string{"Overview", "Workspaces", "Objectives", "Agents", "Secrets", "Capabilities", "Logs", "Settings"}
 	ansi   = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)`)
 )
 
@@ -171,7 +182,16 @@ func fetchCmd(client *azblob.Client) tea.Cmd {
 			return snapshotMsg{err: err}
 		}
 		logData, _ := download(client, "logs.txt")
-		return snapshotMsg{dashboard: board, logs: string(logData)}
+		var workspaces []workspace
+		workspaceErr := ""
+		if output, commandError := exec.Command("factory", "workspace", "list").Output(); commandError == nil {
+			if decodeError := json.Unmarshal(output, &workspaces); decodeError != nil {
+				workspaceErr = decodeError.Error()
+			}
+		} else {
+			workspaceErr = commandError.Error()
+		}
+		return snapshotMsg{dashboard: board, logs: string(logData), workspaces: workspaces, workspaceErr: workspaceErr}
 	}
 }
 
@@ -213,13 +233,13 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.scroll += 10
 		case "home":
 			m.scroll = 0
-		case "o", "n", "a", "p", "u", "y", "x":
+		case "o", "n", "i", "a", "p", "u", "y", "x":
 			return m, tea.ExecProcess(exec.Command("factory-ui"), func(err error) tea.Msg { return resumeMsg{err: err} })
 		case "r":
 			m.loading = true
 			return m, fetchCmd(m.client)
 		default:
-			if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '7' {
+			if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '8' {
 				m.tab = int(msg.String()[0] - '1')
 				m.scroll = 0
 			}
@@ -230,7 +250,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		if msg.err == nil {
-			m.dashboard, m.logs = msg.dashboard, msg.logs
+			m.dashboard, m.logs, m.workspaces, m.workspaceErr = msg.dashboard, msg.logs, msg.workspaces, msg.workspaceErr
 		}
 	case resumeMsg:
 		m.err = msg.err
@@ -355,24 +375,41 @@ func (m model) agents() string {
 	return value.String()
 }
 
+func (m model) workspaceList() string {
+	if m.workspaceErr != "" {
+		return "Workspace catalog unavailable: " + clean(m.workspaceErr)
+	}
+	if len(m.workspaces) == 0 {
+		return "No workspaces imported. Press o, then i, to import a local path or owner/repo."
+	}
+	var value strings.Builder
+	value.WriteString("IMPORTED WORKSPACES\n\n")
+	for _, item := range m.workspaces {
+		fmt.Fprintf(&value, "%s  %s\n  %s · %s\n\n", lipgloss.NewStyle().Foreground(accent).Bold(true).Render(clean(item.Name)), clean(item.Repository), clean(item.LocalPath), clean(item.BaseBranch))
+	}
+	return value.String()
+}
+
 func (m model) body() string {
 	switch m.tab {
 	case 0:
 		return m.overview()
 	case 1:
-		return m.objectives()
+		return m.workspaceList()
 	case 2:
-		return m.agents()
+		return m.objectives()
 	case 3:
+		return m.agents()
+	case 4:
 		var b strings.Builder
 		b.WriteString("GLOBAL KEY VAULT\nValues are never displayed.\n\n")
 		for _, item := range m.dashboard.Secrets {
 			fmt.Fprintf(&b, "● %-55s %s\n", clean(item.Name), clean(item.Updated))
 		}
 		return b.String()
-	case 4:
-		return "CURATED CAPABILITIES\n\nSkills: /goal, /loop, TDD, debugging, verification, security, release discipline\nMCP: Context7, Playwright, knowledge-graph memory\nScanners: Trivy, Gitleaks, OSV-Scanner, Semgrep"
 	case 5:
+		return "CURATED CAPABILITIES\n\nSkills: /goal, /loop, TDD, debugging, verification, security, release discipline\nMCP: Context7, Playwright, knowledge-graph memory\nScanners: Trivy, Gitleaks, OSV-Scanner, Semgrep"
+	case 6:
 		if m.logs == "" {
 			return "No log snapshot available."
 		}

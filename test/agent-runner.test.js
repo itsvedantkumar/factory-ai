@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { AzureAgentRunner } from "../src/agent-runner.js";
@@ -90,6 +90,20 @@ test("injects repository AGENTS.md instructions into worker prompts", async () =
 
   assert.match(prompt, /REPOSITORY INSTRUCTIONS AGENTS\.md/);
   assert.match(prompt, /RUN_THE_PROJECT_GATE/);
+});
+
+test("does not follow symbolic-link repository instructions", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-instructions-"));
+  const secret = path.join(directory, "..", `factory-secret-${process.pid}`);
+  await writeFile(secret, "LOCAL_SECRET_MUST_NOT_LEAK");
+  await symlink(secret, path.join(directory, "AGENTS.md"));
+  let prompt;
+  const runner = new AzureAgentRunner({ timeoutMs: 60_000 }, { defaults: {}, skills: {}, mcp: {} }, {
+    environment: { TEXTVED_AZURE_BASE_URL: "https://primary.test/openai/v1", TEXTVED_AZURE_API_KEY: "key" },
+    createHarness: () => ({ run: async (value) => { prompt = value; return { text: '{"summary":"ok","checks":[],"risks":[],"approval":"not_applicable"}' }; } }),
+  });
+  await runner.invoke({ objective: { id: "o", objective: "Ship" }, task: { id: "b", role: "builder", instructions: "Build", capabilities: [] }, directory, prompt: "Work" });
+  assert.doesNotMatch(prompt, /LOCAL_SECRET_MUST_NOT_LEAK/);
 });
 
 test("discovers nested AGENTS.md and preconfigured project context", async () => {

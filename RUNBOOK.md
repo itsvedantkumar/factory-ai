@@ -6,8 +6,8 @@
 bin/factory setup
 bin/factory github status
 bin/factory github connect YOUR_ENTERPRISE_ORG
-bin/factory submit OWNER/REPO "/loop ship the objective"
-bin/factory init /path/to/new-project
+bin/factory workspace import /path/to/new-project --name project
+bin/factory submit project "/loop ship the objective"
 bin/factory secret list
 bin/factory secret set SERVICE-NAME-API-KEY
 bin/factory secret copy SERVICE-NAME-API-KEY

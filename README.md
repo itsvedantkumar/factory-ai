@@ -27,7 +27,7 @@ Most coding-agent setups are interactive sessions pretending to be infrastructur
 
 ## Quick Start
 
-Requirements: Node.js 20, [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), [GitHub CLI](https://cli.github.com/), `az login`, and `gh auth login`.
+Requirements: Node.js 22, [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), [GitHub CLI](https://cli.github.com/), `az login`, and `gh auth login`.
 
 ```bash
 npm install -g factory-ai
@@ -43,8 +43,8 @@ The arrow-key wizard handles the rest. A GitHub organization is not required; pe
 5. Start shipping.
 
 ```bash
-factory init ~/Projects/my-app
-factory submit MY_ORG/my-app "/goal ship authenticated health checks"
+factory workspace import ~/Projects/my-app --name my-app
+factory submit my-app "/goal ship authenticated health checks"
 factory ui
 ```
 
@@ -69,7 +69,11 @@ factory ui
 | --- | --- |
 | `factory setup` | Interactive cloud/provider installation |
 | `factory ui` | Full-screen interactive admin console |
-| `factory submit OWNER/REPO "OBJECTIVE"` | Send one CEO objective |
+| `factory workspace import PATH\|OWNER/REPO` | Import or clone a repository into the persistent workspace catalog |
+| `factory workspace list` | List named workspaces, local paths, branches, and repositories |
+| `factory workspace show NAME` | Inspect one workspace |
+| `factory workspace remove NAME` | Remove a catalog entry without deleting repository files |
+| `factory submit WORKSPACE "OBJECTIVE"` | Send one CEO objective using a workspace name; owner/repo remains supported |
 | `factory issue OWNER/REPO NUMBER` | Turn a GitHub issue into a tracked objective |
 | `factory telegram configure` | Configure allowlisted Telegram remote intake |
 | `factory dashboard` | Objectives, agents, models, queue, DLQ, and Azure cost |
@@ -164,6 +168,8 @@ Every repository gets two memory layers:
 Built-in progressive skills include `/goal`, `/loop`, project context, systematic debugging, TDD, verification, security review, dependency security, browser verification, release discipline, and token efficiency. Context7 and Playwright MCPs are pinned and role-scoped.
 
 Use `factory init PATH` to create a safe root `AGENTS.md` plus `.agent-factory/` project, architecture, commands, decisions, risks, and handoff files without overwriting existing context. The runtime discovers repository `AGENTS.md` instructions for planners and workers. Active Azure and Bedrock conversations compact automatically after their configured token threshold while preserving bounded recent tool evidence.
+
+`factory workspace import` performs this initialization automatically and persists the repository URL, local path, workspace name, and base branch in `~/.config/factory-ai/workspaces.json`. GitHub references are cloned into `~/Factory Workspaces/`; local repositories remain in place.
 
 ## Credentials
 

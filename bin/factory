@@ -28,7 +28,8 @@ usage() {
     '  acp REQUEST.json | extension verify MANIFEST ARTIFACT PUBLIC_KEY' \
     '  github status | connect ORG | transfer OWNER/REPO ORG' \
     '  telegram status | configure | start | stop' \
-    '  submit <owner/repo> <objective>' \
+    '  workspace list | import PATH|OWNER/REPO [--name NAME] | show NAME | remove NAME' \
+    '  submit <workspace|owner/repo> <objective>' \
     '  issue <owner/repo> <number>' \
     '  ui' \
     '  init <local-project-path>' \
@@ -83,6 +84,9 @@ case "$command" in
   extension)
     [[ ${1:-} == verify ]] || { printf 'Usage: factory extension verify MANIFEST ARTIFACT PUBLIC_KEY\n' >&2; exit 2; }
     exec node "$FACTORY_ROOT/src/extension-cli.js" "${2:?manifest required}" "${3:?artifact required}" "${4:?public key required}"
+    ;;
+  workspace)
+    exec node "$FACTORY_ROOT/src/workspace-cli.js" "$@"
     ;;
   configure)
     area=${1:-models}
@@ -357,23 +361,14 @@ case "$command" in
   init)
     target=${1:?local project path required}
     [[ -d $target ]] || { printf 'Project directory does not exist: %s\n' "$target" >&2; exit 2; }
-    context="$target/.agent-factory"
-    mkdir -p "$context"
-    [[ -e $target/AGENTS.md ]] || cp "$FACTORY_ROOT/templates/AGENTS.md" "$target/AGENTS.md"
-    for template in "$FACTORY_ROOT/templates/project/"*.md; do
-      destination="$context/$(basename "$template")"
-      [[ -e $destination ]] || cp "$template" "$destination"
-    done
+    context=$(node --input-type=module -e "import { initializeProject } from 'file://$FACTORY_ROOT/src/project-init.js'; console.log(await initializeProject(process.argv[1], '$FACTORY_ROOT/templates'))" "$target")
     printf 'Initialized %s\nShared runtime memory remains on Azure; repo context lives in .agent-factory/.\n' "$context"
     ;;
   submit)
-    repo=${1:?repository owner/name required}
+    repo=${1:?workspace name or repository owner/name required}
     shift
     objective=${*:?objective required}
-    [[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { printf 'Invalid repository\n' >&2; exit 2; }
-    repo64=$(printf '%s' "$repo" | base64)
-    objective64=$(printf '%s' "$objective" | base64)
-    remote "repo=\$(printf '%s' '$repo64' | base64 -d); objective=\$(printf '%s' '$objective64' | base64 -d); sudo -u factory env \$(xargs < /etc/agent-factory-control.env) node /opt/agent-factory/app/src/ceo.js --repo \"https://github.com/\$repo.git\" --base main \"\$objective\""
+    SERVICE_BUS_NAMESPACE="$NAMESPACE" CONTROL_QUEUE=control-events exec node "$FACTORY_ROOT/src/submit-cli.js" "$repo" "$objective"
     ;;
   dashboard|status)
     remote 'sudo -u factory env $(xargs < /etc/agent-factory-control.env) node /opt/agent-factory/app/src/dashboard.js'

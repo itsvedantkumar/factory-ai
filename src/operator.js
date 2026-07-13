@@ -70,11 +70,13 @@ export function createOperator(environment = process.env) {
       return value ? value.toString("utf8") : remote('journalctl -u agent-factory-control -u agent-factory-worker -u agent-factory-release --since "1 hour ago" --no-pager -n 300');
     },
     submit: async (repository, objective) => {
-      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || objective.trim().length < 3) throw new Error("Valid repository and objective are required");
+      if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/.test(repository) || objective.trim().length < 3) throw new Error("Valid workspace and objective are required");
       const output = await command(path.join(root, "bin/factory"), ["submit", repository, objective]);
       const match = output.match(/\{"objectiveId"[\s\S]*?\}/);
       return match ? JSON.parse(match[0]) : { status: "submitted" };
     },
+    listWorkspaces: async () => JSON.parse(await command(path.join(root, "bin/factory"), ["workspace", "list"])),
+    importWorkspace: async (source, name) => JSON.parse(await command(path.join(root, "bin/factory"), ["workspace", "import", source, ...(name ? ["--name", name] : [])])),
     control: async (action) => {
       if (!["pause", "resume"].includes(action)) throw new Error("Unsupported control action");
       return command(path.join(root, "bin/factory"), [action]);

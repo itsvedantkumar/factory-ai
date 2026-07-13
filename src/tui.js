@@ -11,14 +11,15 @@ const screen = blessed.screen({ smartCSR: true, title: factoryName, fullUnicode:
 const colors = { bg: "#0d0f12", panel: "#15191f", border: "#303743", text: "#d9e0e8", muted: "#7f8b99", accent: "#78dba9", warn: "#efc46b", danger: "#ef7d7d", blue: "#77a8ff" };
 
 blessed.box({ parent: screen, top: 0, left: 0, width: "100%", height: 3, tags: true, style: { bg: colors.panel, fg: colors.text }, content: `  {bold}{#78dba9-fg}${factoryName.toUpperCase()}{/}  {/bold}  ${factoryPurpose}` });
-const menu = blessed.list({ parent: screen, top: 3, left: 0, width: 23, bottom: 2, border: { type: "line" }, label: " Navigate ", keys: true, mouse: true, vi: true, items: ["Overview", "Objectives", "Agents", "Secrets", "Capabilities", "Logs", "Settings"], style: { bg: colors.panel, fg: colors.text, border: { fg: colors.border }, selected: { bg: colors.accent, fg: "#07130d", bold: true }, item: { fg: colors.text } } });
+const menu = blessed.list({ parent: screen, top: 3, left: 0, width: 23, bottom: 2, border: { type: "line" }, label: " Navigate ", keys: true, mouse: true, vi: true, items: ["Overview", "Workspaces", "Objectives", "Agents", "Secrets", "Capabilities", "Logs", "Settings"], style: { bg: colors.panel, fg: colors.text, border: { fg: colors.border }, selected: { bg: colors.accent, fg: "#07130d", bold: true }, item: { fg: colors.text } } });
 const main = blessed.box({ parent: screen, top: 3, left: 23, right: 0, bottom: 2, border: { type: "line" }, label: " Overview ", tags: true, scrollable: true, alwaysScroll: true, keys: true, mouse: true, vi: true, scrollbar: { ch: "▐", style: { fg: colors.accent } }, padding: { left: 2, right: 2 }, style: { bg: colors.bg, fg: colors.text, border: { fg: colors.border } } });
-const footer = blessed.box({ parent: screen, bottom: 0, left: 0, width: "100%", height: 2, tags: true, style: { bg: colors.panel, fg: colors.muted }, content: "  {bold}n{/} new   {bold}r{/} refresh   {bold}a{/} secret   {bold}y/x{/} approve/deny   {bold}p/u{/} pause/resume   {bold}q{/} quit" });
+const footer = blessed.box({ parent: screen, bottom: 0, left: 0, width: "100%", height: 2, tags: true, style: { bg: colors.panel, fg: colors.muted }, content: "  {bold}n{/} new   {bold}i{/} import workspace   {bold}r{/} refresh   {bold}a{/} secret   {bold}y/x{/} approve/deny   {bold}q{/} quit" });
 
 let dashboard;
 let capabilities;
 let secrets;
 let logs;
+let workspaces = [];
 let section = "Overview";
 let refreshing = false;
 
@@ -28,7 +29,7 @@ function safe(value) {
 }
 
 function status(message, color = colors.muted) {
-  footer.setContent(`  {${color}-fg}${message}{/}   {bold}n{/} new   {bold}r{/} refresh   {bold}q{/} quit`);
+  footer.setContent(`  {${color}-fg}${message}{/}   {bold}n{/} new   {bold}i{/} import   {bold}r{/} refresh   {bold}q{/} quit`);
   screen.render();
 }
 
@@ -75,9 +76,14 @@ function renderSettings() {
   main.setContent(`{bold}Runtime{/}\n\n  Resource group  ${config.resourceGroup}\n  VM              ${config.vm}\n  Service Bus     ${config.namespace}\n  Key Vault       ${config.vault}\n  Operator state  ${config.storageAccount || "Run Command fallback"}\n\n{bold}Model policy{/}\n\n  Scout           GPT-5.4 nano\n  Simple builder  Kimi K2.7-Code\n  Builder         GPT-5.5\n  Tester          GPT-5.4\n  Critical roles  GPT-5.6\n\n{#7f8b99-fg}Run factory setup to change providers or role routes.{/}`);
 }
 
+function renderWorkspaces() {
+  main.setContent(`{bold}Imported workspaces{/}\n{#7f8b99-fg}Press i to import a local path or owner/repo. Press n to submit work by name.{/}\n\n${workspaces.map((workspace) => `  {#78dba9-fg}●{/} {bold}${safe(workspace.name)}{/}  ${safe(workspace.repository)}\n    ${safe(workspace.localPath ?? "remote only")} · ${safe(workspace.baseBranch)}`).join("\n\n") || "  No workspaces imported."}`);
+}
+
 function render() {
   main.setLabel(` ${section} `);
   if (section === "Overview") renderOverview();
+  else if (section === "Workspaces") renderWorkspaces();
   else if (section === "Objectives") renderObjectives();
   else if (section === "Agents") renderAgents();
   else if (section === "Secrets") renderSecrets();
@@ -94,6 +100,7 @@ async function refresh() {
   status("Refreshing...");
   try {
     dashboard = await operator.dashboard();
+    workspaces = await operator.listWorkspaces();
     if (section === "Capabilities" && !capabilities) capabilities = await operator.capabilities();
     if (section === "Secrets") secrets = dashboard?.secrets ?? await operator.listSecrets();
     if (section === "Logs") logs = await operator.logs();
@@ -113,12 +120,18 @@ function ask(label, { secret = false } = {}) {
 }
 
 async function submitObjective() {
-  const repository = await ask("Repository owner/name");
+  const repository = await ask(`Workspace name${workspaces.length ? ` (${workspaces.map((item) => item.name).join(", ")})` : " or owner/repo"}`);
   if (!repository) return;
   const objective = await ask("CEO objective");
   if (!objective) return;
   status("Submitting objective...");
   try { const result = await operator.submit(repository, objective); status(`Queued ${result.objectiveId ?? "objective"}`, colors.accent); await refresh(); } catch (error) { status(error.message, colors.danger); }
+}
+
+async function importWorkspace() {
+  const source = await ask("Local path or GitHub owner/repo"); if (!source) return;
+  const name = await ask("Workspace name (Enter for repository name)");
+  try { const workspace = await operator.importWorkspace(source, name); workspaces = await operator.listWorkspaces(); status(`Imported ${workspace.name}`, colors.accent); section = "Workspaces"; render(); } catch (error) { status(error.message, colors.danger); }
 }
 
 async function addSecret() {
@@ -147,6 +160,7 @@ menu.on("select", async (_, index) => { section = menu.getItem(index).getText();
 screen.key(["q", "C-c"], () => process.exit(0));
 screen.key("r", refresh);
 screen.key("n", submitObjective);
+screen.key("i", importWorkspace);
 screen.key("a", addSecret);
 screen.key("y", () => decideApproval("approved"));
 screen.key("x", () => decideApproval("denied"));
