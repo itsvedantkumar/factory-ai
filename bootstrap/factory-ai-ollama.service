@@ -6,7 +6,7 @@ Requires=docker.service
 [Service]
 Type=simple
 ExecStartPre=-/usr/bin/docker rm -f factory-ai-ollama
-ExecStart=/usr/bin/docker run --rm --name factory-ai-ollama --cap-drop ALL --security-opt no-new-privileges --pids-limit 1024 --memory 6g --cpus 4 --publish 127.0.0.1:11434:11434 --volume /opt/agent-factory/state/ollama:/root/.ollama ollama/ollama@sha256:3d8a05e3432d50ea57594fabe971e46cc8fe963a0f9f8c40400bd56cd5388e47
+ExecStart=/usr/bin/docker run --rm --name factory-ai-ollama --userns host --cap-drop ALL --security-opt no-new-privileges --pids-limit 1024 --memory 6g --cpus 4 --publish 127.0.0.1:11434:11434 --volume /opt/agent-factory/state/ollama:/root/.ollama ollama/ollama@sha256:3d8a05e3432d50ea57594fabe971e46cc8fe963a0f9f8c40400bd56cd5388e47
 ExecStop=/usr/bin/docker stop -t 20 factory-ai-ollama
 Restart=always
 RestartSec=5
