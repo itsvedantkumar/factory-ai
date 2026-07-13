@@ -79,6 +79,6 @@
   },
   "devDependencies": {
     "eslint": "9.32.0",
-    "globals": "16.3.0"
+    "globals": "17.7.0"
   }
 }
