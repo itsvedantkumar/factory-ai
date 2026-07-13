@@ -145,6 +145,6 @@ systemctl enable --now factory-ai-update.timer
 systemctl enable --now factory-ai-snapshot.timer
 systemctl enable --now factory-ai-qdrant.service factory-ai-ollama.service
 for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
-docker exec factory-ai-ollama ollama pull embeddinggemma
+docker exec factory-ai-ollama ollama show embeddinggemma >/dev/null 2>&1 || docker exec factory-ai-ollama ollama pull embeddinggemma
 systemctl restart agent-factory-control.service agent-factory-worker.service agent-factory-release.service
 echo "Agent factory worker installed"
