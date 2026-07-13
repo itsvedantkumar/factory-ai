@@ -14,9 +14,11 @@ version=$(jq -r .latest <<<"$status")
 commit=$(jq -r .gitHead <<<"$status")
 [[ $commit =~ ^[0-9a-f]{40}$ ]] || { printf 'npm release does not contain a valid gitHead.\n' >&2; exit 1; }
 
-set -a
-source /etc/agent-factory.env
-set +a
+while IFS='=' read -r name value; do
+  case "$name" in
+    KEY_VAULT_NAME|SERVICE_BUS_NAMESPACE|FACTORY_STORAGE_ACCOUNT|FACTORY_NAME|FACTORY_PURPOSE|AWS_REGION|FACTORY_MODEL_SCOUT|FACTORY_MODEL_PLANNER|FACTORY_MODEL_BUILDER|FACTORY_MODEL_TESTER|FACTORY_MODEL_DEBUGGER|FACTORY_MODEL_REVIEWER|FACTORY_MODEL_SECURITY|FACTORY_MODEL_RELEASE|FACTORY_COMPACT_AFTER_INPUT_TOKENS|FACTORY_COMPACT_MAX_CHARACTERS|FACTORY_WATCHDOG_STALE_SECONDS|FACTORY_HOOKS_JSON) printf -v "$name" '%s' "$value" ;;
+  esac
+done < /etc/agent-factory.env
 github_token=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name github-token --query value --output tsv)
 tag_commit=$(GH_TOKEN="$github_token" gh api "repos/itsvedantkumar/factory-ai/commits/v$version" --jq .sha)
 [[ $tag_commit == "$commit" ]] || { printf 'npm gitHead does not match the immutable release tag.\n' >&2; exit 1; }

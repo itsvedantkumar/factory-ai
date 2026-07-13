@@ -4,6 +4,12 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-07-13
+
+### Fixed
+
+- Parse runtime environment files with an allowlist so factory names and purposes containing spaces do not break verified automatic updates.
+
 ## [1.5.1] - 2026-07-13
 
 ### Fixed
