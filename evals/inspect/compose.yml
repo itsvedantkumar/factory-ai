@@ -1,0 +1,40 @@
+services:
+  inspect:
+    image: python:3.12.10-slim-bookworm@sha256:fd95fa221297a88e1cf49c55ec1828edd7c5a428187e67b5d1805692d11588db
+    working_dir: /workspace
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    volumes:
+      - ../..:/workspace:ro
+      - inspect-pip-cache:/root/.cache/pip
+      - inspect-runtime:/opt/inspect
+      - inspect-logs:/logs
+    environment:
+      INSPECT_LOG_DIR: /logs
+      PATH: /opt/inspect/bin:/usr/local/bin:/usr/bin:/bin
+      PYTHONPATH: /opt/inspect
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        if ! python -c 'from importlib.metadata import version; assert version("inspect-ai") == "0.3.246"'; then
+        python -m pip install --disable-pip-version-check --upgrade --target /opt/inspect inspect-ai==0.3.246;
+        fi;
+        exec "$@"
+      - --
+    command:
+      - inspect
+      - eval
+      - evals/inspect/factory_eval.py
+      - --display
+      - plain
+
+volumes:
+  inspect-pip-cache:
+  inspect-runtime:
+  inspect-logs:

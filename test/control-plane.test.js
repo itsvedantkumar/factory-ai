@@ -60,3 +60,16 @@ test("records permanent worker failures instead of leaving objectives queued", a
   assert.equal((await store.read(objective.id)).status, "failed");
   assert.equal(store.result.result.blockers[0], "test: content_filter");
 });
+
+test("late queue messages cannot overwrite terminal objective state", async () => {
+  const store = new MemoryStore();
+  store.writeResult = async () => { throw new Error("terminal result must not be rewritten"); };
+  await store.write(objective.id, { objective, status: "complete", tasks: [], results: {}, release: { url: "https://github.com/acme/app/pull/1" } });
+  const control = new ControlPlane({ store, registry: { defaults: {}, skills: {}, mcp: {} }, sendTask: async () => {} });
+  await control.acceptFailure({ type: "failure_result", objectiveId: objective.id, taskId: "build", error: "late watchdog" });
+  assert.equal((await store.read(objective.id)).status, "complete");
+
+  await store.write(objective.id, { objective, status: "failed", tasks: [], results: {} });
+  await control.acceptReleaseResult({ type: "release_result", objectiveId: objective.id, release: { url: "https://github.com/acme/app/pull/2" } });
+  assert.equal((await store.read(objective.id)).status, "failed");
+});

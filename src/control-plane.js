@@ -1,7 +1,9 @@
-import { parseObjective, parsePlan, parseResultMessage } from "./validation.js";
+import { parseApprovalDecisionMessage, parseApprovalRequestMessage, parseObjective, parsePlan, parseResultMessage } from "./validation.js";
 import { validateDeliveryGraph, readyTasks } from "./task-graph.js";
 import { selectCapabilities } from "./capabilities.js";
 import { evaluateReleaseGate } from "./release-gate.js";
+
+const TERMINAL_OBJECTIVE_STATES = new Set(["complete", "failed", "blocked", "cancelled", "denied", "expired"]);
 
 export class ControlPlane {
   constructor({ store, memory, registry, sendTask, sendRelease = async () => { throw new Error("Release sender is unavailable"); } }) {
@@ -49,30 +51,74 @@ export class ControlPlane {
     const delivery = parsePlan(value.delivery);
     validateDeliveryGraph(delivery.tasks);
     for (const task of delivery.tasks) selectCapabilities(this.registry, task.role, task.capabilities);
-    await this.store.update(value.objectiveId, (state) => ({
-      ...state,
-      status: "running",
-      executiveIntent: delivery.executiveIntent,
-      tasks: delivery.tasks,
-    }));
+    let accepted = false;
+    await this.store.update(value.objectiveId, (state) => {
+      if (TERMINAL_OBJECTIVE_STATES.has(state.status)) return state;
+      accepted = true;
+      return { ...state, status: "running", executiveIntent: delivery.executiveIntent, tasks: delivery.tasks };
+    });
+    if (!accepted) return;
     await this.dispatch(value.objectiveId);
   }
 
   async acceptTaskResult(value) {
     const result = parseResultMessage(value);
-    await this.store.update(result.objectiveId, (state) => ({
+    await this.store.update(result.objectiveId, (state) => TERMINAL_OBJECTIVE_STATES.has(state.status) ? state : ({
       ...state,
-      results: {
-        ...state.results,
-        [result.taskId]: { ...result, completedAt: new Date().toISOString() },
-      },
+      results: { ...state.results, [result.taskId]: { ...result, completedAt: new Date().toISOString() } },
     }));
     await this.dispatch(result.objectiveId);
   }
 
+  async acceptApprovalRequest(value) {
+    const request = parseApprovalRequestMessage(value);
+    await this.store.update(request.objectiveId, (state) => {
+      if (TERMINAL_OBJECTIVE_STATES.has(state.status) || state.approval?.approvalId === request.approvalId) return state;
+      if (state.status === "approval_required") return state;
+      return { ...state, status: "approval_required", approval: { ...request, status: "approval_required" } };
+    });
+  }
+
+  async acceptApprovalDecision(value) {
+    const decision = parseApprovalDecisionMessage(value);
+    let accepted = false;
+    let approved = false;
+    await this.store.update(decision.objectiveId, (state) => {
+      if (state.status !== "approval_required" || state.approval?.approvalId !== decision.approvalId) return state;
+      if (decision.decision === "expired" && Date.parse(decision.decidedAt) < Date.parse(state.approval.expiresAt)) return state;
+      const status = Date.parse(decision.decidedAt) >= Date.parse(state.approval.expiresAt) ? "expired" : decision.decision;
+      accepted = true;
+      approved = status === "approved";
+      const results = { ...state.results };
+      if (approved && state.approval.checkpoint) delete results[state.approval.checkpoint];
+      return {
+        ...state,
+        status,
+        results,
+        approval: { ...state.approval, status, actor: decision.actor, reason: decision.reason, decidedAt: decision.decidedAt, messageId: decision.messageId },
+      };
+    });
+    if (accepted && approved) await this.dispatch(decision.objectiveId);
+    if (accepted && !approved) {
+      const state = await this.store.read(decision.objectiveId);
+      await this.store.writeResult(decision.objectiveId, {
+        objectiveId: decision.objectiveId,
+        status: state.status,
+        executiveSummary: state.executiveIntent ?? state.objective.objective,
+        checks: [], blockers: [`Approval ${state.status}: ${decision.reason}`], autoMergeEnabled: false, completedAt: decision.decidedAt,
+      });
+    }
+  }
+
   async acceptReleaseResult(value) {
     if (value?.type !== "release_result" || typeof value.objectiveId !== "string" || !value.release?.url) throw new Error("Invalid release result");
-    const state = await this.store.update(value.objectiveId, (current) => ({ ...current, status: "complete", release: value.release, completedAt: new Date().toISOString() }));
+    let accepted = false;
+    const state = await this.store.update(value.objectiveId, (current) => {
+      if (TERMINAL_OBJECTIVE_STATES.has(current.status)) return current;
+      accepted = true;
+      return { ...current, status: "complete", release: value.release, completedAt: new Date().toISOString() };
+    });
+    if (!accepted) return;
     await this.store.writeResult(value.objectiveId, {
       objectiveId: value.objectiveId,
       status: "complete",
@@ -98,7 +144,19 @@ export class ControlPlane {
   async acceptFailure(value) {
     if (value?.type !== "failure_result" || typeof value.objectiveId !== "string" || typeof value.error !== "string") throw new Error("Invalid failure result");
     const blocker = `${value.taskId ?? "unknown-task"}: ${value.error}`;
-    const state = await this.store.update(value.objectiveId, (current) => ({ ...current, status: "failed", failure: blocker, completedAt: new Date().toISOString() }));
+    let accepted = false;
+    const state = await this.store.update(value.objectiveId, (current) => {
+      if (TERMINAL_OBJECTIVE_STATES.has(current.status)) return current;
+      accepted = true;
+      return {
+        ...current,
+        status: "failed",
+        failure: blocker,
+        completedAt: new Date().toISOString(),
+        results: value.taskId ? { ...current.results, [value.taskId]: { status: "failed", error: value.error, completedAt: new Date().toISOString() } } : current.results,
+      };
+    });
+    if (!accepted) return;
     await this.store.writeResult(value.objectiveId, {
       objectiveId: value.objectiveId,
       status: "failed",
@@ -112,10 +170,12 @@ export class ControlPlane {
 
   async dispatch(objectiveId) {
     const state = await this.store.read(objectiveId);
+    if (TERMINAL_OBJECTIVE_STATES.has(state.status) || state.status === "approval_required") return;
     for (const taskId of readyTasks(state.tasks, state.results)) {
       const task = state.tasks.find((candidate) => candidate.id === taskId);
       const dependencyCommits = task.dependsOn.map((id) => state.results[id]?.commit).filter(Boolean);
-      await this.sendTask({ type: "agent_task", objectiveId, objective: state.objective, task, dependencyCommits });
+      const approvalGranted = state.status === "approved" && state.approval?.status === "approved" && state.approval?.checkpoint === task.id;
+      await this.sendTask({ type: "agent_task", objectiveId, objective: state.objective, task, dependencyCommits, ...(approvalGranted ? { approvalGranted: true } : {}) });
       await this.store.update(objectiveId, (current) => ({
         ...current,
         results: { ...current.results, [taskId]: { status: "queued", queuedAt: new Date().toISOString() } },
@@ -125,7 +185,8 @@ export class ControlPlane {
     if (latest.status !== "releasing" && latest.tasks.length > 0 && latest.tasks.every((task) => latest.results[task.id]?.status === "succeeded")) {
       const gate = evaluateReleaseGate(latest.tasks, latest.results);
       if (!gate.approved) {
-        await this.store.update(objectiveId, (current) => ({ ...current, status: "blocked", failure: gate.blockers.join(", ") }));
+        const blocked = await this.store.update(objectiveId, (current) => ({ ...current, status: "blocked", failure: gate.blockers.join(", "), completedAt: new Date().toISOString() }));
+        await this.store.writeResult(objectiveId, { objectiveId, status: "blocked", executiveSummary: blocked.executiveIntent ?? blocked.objective.objective, checks: [], blockers: gate.blockers, autoMergeEnabled: false, completedAt: blocked.completedAt });
         return;
       }
       const releaseTask = latest.tasks.find((task) => task.role === "release");

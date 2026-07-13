@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { DefaultAzureCredential } from "@azure/identity";
 import { BlobServiceClient } from "@azure/storage-blob";
+import { ServiceBusClient } from "@azure/service-bus";
+import { sendMessage } from "./bus.js";
 import { run } from "./process.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -36,6 +38,16 @@ export function createOperator(environment = process.env) {
     }
     throw new Error("Azure Run Command remained busy");
   };
+  const downloadOperatorBlob = async (name) => {
+    if (!storageAccount) return null;
+    try {
+      const service = new BlobServiceClient(`https://${storageAccount}.blob.core.windows.net`, new DefaultAzureCredential());
+      return await service.getContainerClient("operator").getBlockBlobClient(name).downloadToBuffer();
+    } catch (error) {
+      if (["BlobNotFound", "ContainerNotFound"].includes(error.code)) return null;
+      throw error;
+    }
+  };
   const withVault = async (operation) => {
     const ip = await command("curl", ["-fsS", "https://api.ipify.org"]);
     await command("az", ["keyvault", "network-rule", "add", "--name", vault, "--ip-address", `${ip}/32`, "--output", "none"]);
@@ -47,18 +59,16 @@ export function createOperator(environment = process.env) {
   return {
     dashboard: async () => {
       if (storageAccount) {
-        try {
-          const service = new BlobServiceClient(`https://${storageAccount}.blob.core.windows.net`, new DefaultAzureCredential());
-          const value = await service.getContainerClient("operator").getBlockBlobClient("dashboard.json").downloadToBuffer();
-          return JSON.parse(value.toString("utf8"));
-        } catch (error) {
-          if (!["BlobNotFound", "ContainerNotFound"].includes(error.code)) throw error;
-        }
+        const value = await downloadOperatorBlob("dashboard.json");
+        if (value) return JSON.parse(value.toString("utf8"));
       }
       const encoded = await remote("sudo -u factory env $(xargs < /etc/agent-factory-control.env) node /opt/agent-factory/app/src/dashboard.js --json | gzip -c | base64 -w0");
       return JSON.parse(gunzipSync(Buffer.from(encoded, "base64")).toString("utf8"));
     },
-    logs: async () => remote('journalctl -u agent-factory-control -u agent-factory-worker -u agent-factory-release --since "1 hour ago" --no-pager -n 300'),
+    logs: async () => {
+      const value = await downloadOperatorBlob("logs.txt");
+      return value ? value.toString("utf8") : remote('journalctl -u agent-factory-control -u agent-factory-worker -u agent-factory-release --since "1 hour ago" --no-pager -n 300');
+    },
     submit: async (repository, objective) => {
       if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository) || objective.trim().length < 3) throw new Error("Valid repository and objective are required");
       const output = await command(path.join(root, "bin/factory"), ["submit", repository, objective]);
@@ -69,9 +79,21 @@ export function createOperator(environment = process.env) {
       if (!["pause", "resume"].includes(action)) throw new Error("Unsupported control action");
       return command(path.join(root, "bin/factory"), [action]);
     },
+    approval: async ({ objectiveId, approvalId, decision, reason }) => {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(objectiveId) || !/^[A-Za-z0-9_-]{1,64}$/.test(approvalId) || !["approved", "denied"].includes(decision) || !reason?.trim()) throw new Error("Valid approval decision is required");
+      const client = new ServiceBusClient(namespace.includes(".") ? namespace : `${namespace}.servicebus.windows.net`, new DefaultAzureCredential());
+      const sender = client.createSender("control-events");
+      const messageId = `approval-${objectiveId}-${approvalId}-${decision}`.slice(0, 64);
+      try { await sendMessage(sender, { type: "approval_decision", objectiveId, approvalId, decision, actor: "local-operator", reason: reason.trim().slice(0, 1000), decidedAt: new Date().toISOString(), messageId }, messageId, objectiveId); }
+      finally { await sender.close(); await client.close(); }
+    },
     capabilities: async () => JSON.parse(await readFile(path.join(root, "config/capabilities.json"), "utf8")),
     config: () => ({ factoryName, factoryPurpose, resourceGroup, vm, namespace, vault, storageAccount, models: { scout: "GPT-5.4 nano", simpleBuilder: "Kimi K2.7-Code", builder: "GPT-5.5", tester: "GPT-5.4", critical: "GPT-5.6" } }),
-    listSecrets: async () => withVault(async () => JSON.parse(await command("az", ["keyvault", "secret", "list", "--vault-name", vault, "--query", "[].{name:name,updated:attributes.updated}", "--output", "json"]))),
+    listSecrets: async () => {
+      const dashboard = await downloadOperatorBlob("dashboard.json");
+      if (dashboard) return JSON.parse(dashboard.toString("utf8")).secrets ?? [];
+      return withVault(async () => JSON.parse(await command("az", ["keyvault", "secret", "list", "--vault-name", vault, "--query", "[].{name:name,updated:attributes.updated}", "--output", "json"])));
+    },
     setSecret: async (name, value) => withVault(async () => {
       if (!/^[A-Za-z0-9-]{1,127}$/.test(name) || !value) throw new Error("Valid secret name and value are required");
       await command("az", ["keyvault", "secret", "set", "--vault-name", vault, "--name", name, "--value", value, "--output", "none"]);

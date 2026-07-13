@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { AzureAgentRunner } from "../src/agent-runner.js";
@@ -75,4 +75,38 @@ test("supports Bedrock role overrides through the same agent contract", async ()
   await runner.invoke({ objective: { id: "o", objective: "Ship" }, task: { id: "b", role: "builder", instructions: "Build", capabilities: [] }, directory, prompt: "Work" });
   assert.equal(options.model, "us.anthropic.claude-sonnet-4-6-v1:0");
   assert.equal(options.region, "us-east-1");
+});
+
+test("injects repository AGENTS.md instructions into worker prompts", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-instructions-"));
+  await writeFile(path.join(directory, "AGENTS.md"), "RUN_THE_PROJECT_GATE");
+  let prompt;
+  const runner = new AzureAgentRunner({ timeoutMs: 60_000 }, { defaults: {}, skills: {}, mcp: {} }, {
+    environment: { TEXTVED_AZURE_BASE_URL: "https://primary.test/openai/v1", TEXTVED_AZURE_API_KEY: "key" },
+    createHarness: () => ({ run: async (value) => { prompt = value; return { text: '{"summary":"ok","checks":[],"risks":[],"approval":"not_applicable"}' }; } }),
+  });
+
+  await runner.invoke({ objective: { id: "o", objective: "Ship" }, task: { id: "b", role: "builder", instructions: "Build", capabilities: [] }, directory, prompt: "Work" });
+
+  assert.match(prompt, /REPOSITORY INSTRUCTIONS AGENTS\.md/);
+  assert.match(prompt, /RUN_THE_PROJECT_GATE/);
+});
+
+test("discovers nested AGENTS.md and preconfigured project context", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "factory-instructions-"));
+  await mkdir(path.join(directory, "src", "billing"), { recursive: true });
+  await mkdir(path.join(directory, ".agent-factory"));
+  await writeFile(path.join(directory, "AGENTS.md"), "ROOT_POLICY");
+  await writeFile(path.join(directory, "src", "billing", "AGENTS.md"), "BILLING_POLICY");
+  await writeFile(path.join(directory, ".agent-factory", "commands.md"), "npm run verify");
+  let prompt;
+  const runner = new AzureAgentRunner({ timeoutMs: 60_000 }, { defaults: {}, skills: {}, mcp: {} }, {
+    environment: { TEXTVED_AZURE_BASE_URL: "https://primary.test/openai/v1", TEXTVED_AZURE_API_KEY: "key" },
+    createHarness: () => ({ run: async (value) => { prompt = value; return { text: '{"tasks":[]}' }; } }),
+  });
+  await runner.plan({ id: "objective1", objective: "Ship" }, directory);
+  assert.match(prompt, /ROOT_POLICY/);
+  assert.match(prompt, /src\/billing\/AGENTS\.md/);
+  assert.match(prompt, /BILLING_POLICY/);
+  assert.match(prompt, /npm run verify/);
 });

@@ -45,10 +45,18 @@ export class WorkspaceManager {
 
   async prepareTask(objective, task, dependencyCommits = []) {
     const directory = this.taskDirectory(objective.id, task.id);
-    if (await exists(directory)) return directory;
+    const branch = `factory-ai/${objective.id}/${task.id}`;
+    if (await exists(directory)) {
+      const current = (await run("git", ["-C", directory, "branch", "--show-current"])).stdout.trim();
+      if (current !== branch) throw new Error(`Existing task workspace is on unexpected branch: ${current}`);
+      for (const commit of dependencyCommits) {
+        const ancestor = await run("git", ["-C", directory, "merge-base", "--is-ancestor", commit, "HEAD"], { allowExitCodes: [0, 1] });
+        if (ancestor.code !== 0) throw new Error(`Existing task workspace is missing dependency commit: ${commit}`);
+      }
+      return directory;
+    }
     await mkdir(path.dirname(directory), { recursive: true, mode: 0o750 });
     const base = dependencyCommits[0] ?? `origin/${objective.baseBranch}`;
-    const branch = `factory-ai/${objective.id}/${task.id}`;
     await run("git", ["clone", objective.repository, directory], { timeoutMs: this.timeoutMs });
     await run("git", ["-C", directory, "config", "user.name", "Factory AI"]);
     await run("git", ["-C", directory, "config", "user.email", "factory-ai@localhost"]);
@@ -58,6 +66,13 @@ export class WorkspaceManager {
     }
     await run("git", ["-C", directory, "push", "--set-upstream", "origin", branch], { timeoutMs: this.timeoutMs });
     return directory;
+  }
+
+  async recoveryContext(directory) {
+    const status = (await run("git", ["-C", directory, "status", "--short"], { maxOutputBytes: 50_000 })).stdout.trim();
+    if (!status) return "";
+    const summary = (await run("git", ["-C", directory, "diff", "--stat"], { maxOutputBytes: 50_000 })).stdout.trim();
+    return `RECOVERED DURABLE WORKTREE CHECKPOINT\nA previous attempt changed these files. Inspect and continue rather than repeating completed work.\n${status}${summary ? `\n\n${summary}` : ""}`;
   }
 
   async checkpoint(directory, objective, task) {
@@ -73,6 +88,11 @@ export class WorkspaceManager {
     const branch = `factory-ai/${objective.id}/${task.id}`;
     await run("git", ["-C", directory, "push", "--set-upstream", "origin", branch], { timeoutMs: this.timeoutMs });
     return { commit, branch };
+  }
+
+  async reference(directory, objective, task) {
+    const { stdout } = await run("git", ["-C", directory, "rev-parse", "HEAD"]);
+    return { commit: stdout.trim(), branch: `factory-ai/${objective.id}/${task.id}` };
   }
 
 }

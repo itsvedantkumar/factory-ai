@@ -114,3 +114,57 @@ test("returns tool failures to the model so it can recover", async () => {
   assert.equal((await harness.run("fix tests")).text, "recovered");
   assert.match(requests[1].input[0].output, /^ERROR: tests failed/);
 });
+
+test("automatically compacts oversized response history", async () => {
+  const requests = [];
+  const events = [];
+  const harness = new AzureResponsesHarness({
+    baseUrl: "https://example.test/openai/v1",
+    apiKey: "not-a-real-key",
+    model: "gpt-test",
+    compactAfterInputTokens: 50,
+    onEvent: (event) => events.push(event),
+    fetch: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      if (requests.length === 1) return response({ id: "r1", usage: { input_tokens: 60 }, output: [{ type: "function_call", call_id: "c1", name: "read_file", arguments: "{}" }] });
+      return response({ id: "r2", output_text: "done", output: [] });
+    },
+    tools: { read_file: { description: "read", parameters: { type: "object" }, execute: async () => "important evidence" } },
+  });
+
+  await harness.run("Original objective");
+
+  assert.equal(requests[1].previous_response_id, undefined);
+  assert.match(requests[1].input, /COMPACTED EXECUTION CHECKPOINT/);
+  assert.match(requests[1].input, /important evidence/);
+  assert.equal(events.some((event) => event.type === "context.compacted"), true);
+});
+
+test("executes model-requested read-only tools in parallel while preserving output order", async () => {
+  let active = 0;
+  let maximum = 0;
+  const requests = [];
+  const harness = new AzureResponsesHarness({
+    baseUrl: "https://example.test/openai/v1",
+    apiKey: "not-a-real-key",
+    model: "gpt-test",
+    fetch: async (_url, options) => {
+      requests.push(JSON.parse(options.body));
+      if (requests.length === 1) return response({ id: "r1", output: [
+        { type: "function_call", call_id: "first", name: "read_file", arguments: '{"path":"a"}' },
+        { type: "function_call", call_id: "second", name: "read_file", arguments: '{"path":"b"}' },
+      ] });
+      return response({ id: "r2", output_text: "done", output: [] });
+    },
+    tools: { read_file: { parallelSafe: true, description: "read", parameters: { type: "object" }, execute: async ({ path }) => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      return path;
+    } } },
+  });
+  await harness.run("Read both");
+  assert.equal(maximum, 2);
+  assert.deepEqual(requests[1].input.map((item) => item.call_id), ["first", "second"]);
+});

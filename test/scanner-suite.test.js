@@ -13,5 +13,6 @@ test("runs digest-pinned scanners read-only and redacts output", async () => {
   assert.ok(calls.every((call) => call.command === "docker"));
   assert.ok(calls.every((call) => call.args.some((value) => value === "/workspace/task:/workspace:ro")));
   assert.ok(calls.every((call) => call.args.some((value) => value.includes("@sha256:"))));
+  assert.ok(calls.some((call) => call.args.includes("semgrep") && call.args.includes("--error")));
   assert.ok(results.every((result) => !result.output.includes("super-secret-value")));
 });

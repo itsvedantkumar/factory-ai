@@ -3,6 +3,16 @@ function renderContent(result) {
   return value.length > 32_000 ? `${value.slice(0, 32_000)}\n[TRUNCATED: request narrower MCP output]` : value;
 }
 
+async function withTimeout(operation, timeoutMs, label) {
+  let timer;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs); timer.unref?.(); }),
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
 async function defaultConnect(capability) {
   const [{ Client }, { StdioClientTransport }] = await Promise.all([
     import("@modelcontextprotocol/sdk/client/index.js"),
@@ -29,17 +39,23 @@ export async function connectMcpTools(capabilities, { connect = defaultConnect }
   const clients = [];
   const tools = {};
   try {
-    for (const capability of capabilities.filter((item) => item.type === "mcp")) {
+    const mcp = capabilities.filter((item) => item.type === "mcp");
+    const connected = await Promise.allSettled(mcp.map(async (capability) => {
       const client = await connect(capability);
-      clients.push(client);
       const listed = await client.listTools();
+      return { capability, client, listed };
+    }));
+    for (const result of connected) if (result.status === "fulfilled") clients.push(result.value.client);
+    const failure = connected.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
+    for (const { capability, client, listed } of connected.map((result) => result.value)) {
       for (const definition of listed.tools) {
         const name = `${capability.name}__${definition.name}`;
         if (tools[name]) throw new Error(`Duplicate MCP tool: ${name}`);
         tools[name] = {
           description: definition.description ?? `${capability.name} ${definition.name}`,
           parameters: definition.inputSchema ?? { type: "object" },
-          execute: async (argumentsValue) => renderContent(await client.callTool({ name: definition.name, arguments: argumentsValue })),
+          execute: async (argumentsValue) => renderContent(await withTimeout(client.callTool({ name: definition.name, arguments: argumentsValue }), capability.timeoutMs ?? 60_000, `MCP tool ${name}`)),
         };
       }
     }

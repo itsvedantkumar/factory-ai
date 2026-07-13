@@ -17,3 +17,13 @@ test("formats retrieved context within a strict character budget", () => {
   assert.ok(output.length <= 5000);
   assert.match(output, /src\/0\.js/);
 });
+
+test("deduplicates semantic context already present in the repository map", () => {
+  const points = [
+    { score: 0.9, payload: { path: "src/auth.js", startLine: 4, endLine: 4, content: "duplicate" } },
+    { score: 0.8, payload: { path: "src/session.js", startLine: 2, endLine: 5, content: "session" } },
+  ];
+  const output = formatRetrievedContext(points, 2000, [{ path: "src/auth.js", startLine: 4, endLine: 4 }]);
+  assert.doesNotMatch(output, /src\/auth\.js/);
+  assert.match(output, /src\/session\.js/);
+});

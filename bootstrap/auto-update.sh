@@ -18,6 +18,12 @@ set -a
 source /etc/agent-factory.env
 set +a
 github_token=$(az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name github-token --query value --output tsv)
+tag_commit=$(GH_TOKEN="$github_token" gh api "repos/itsvedantkumar/factory-ai/commits/v$version" --jq .sha)
+[[ $tag_commit == "$commit" ]] || { printf 'npm gitHead does not match the immutable release tag.\n' >&2; exit 1; }
+release_ok=$(GH_TOKEN="$github_token" gh release view "v$version" --repo itsvedantkumar/factory-ai --json isDraft,isPrerelease --jq '(.isDraft == false) and (.isPrerelease == false)')
+[[ $release_ok == true ]] || { printf 'Matching stable GitHub release is unavailable.\n' >&2; exit 1; }
+provenance=$(npm view "factory-ai@$version" dist.attestations.provenance.url 2>/dev/null || true)
+[[ $provenance == https://search.sigstore.dev/* ]] || { printf 'npm release lacks verifiable provenance metadata.\n' >&2; exit 1; }
 checks=$(GH_TOKEN="$github_token" gh api "repos/itsvedantkumar/factory-ai/commits/$commit/check-runs" --jq '[.check_runs[] | select(.name == "verify") | .conclusion] | any(. == "success")')
 [[ $checks == true ]] || { printf 'Candidate commit lacks successful CI verification.\n' >&2; exit 1; }
 
@@ -41,20 +47,22 @@ docker run --rm --read-only --volume "$temporary/source:/workspace:ro" \
   detect --source /workspace --redact --no-banner --exit-code 1
 
 printf 'Deploying Factory AI %s (%s)\n' "$version" "$commit"
-if ! bash "$temporary/source/bootstrap/deploy-runtime.sh" \
-  KEY_VAULT_NAME "$KEY_VAULT_NAME" \
-  SERVICE_BUS_NAMESPACE "$SERVICE_BUS_NAMESPACE" \
-  SERVICE_BUS_QUEUE code-tasks \
-  SOURCE_REPOSITORY itsvedantkumar/factory-ai \
-  SOURCE_REF "$commit"; then
+deployment_parameters=(
+  KEY_VAULT_NAME "$KEY_VAULT_NAME"
+  SERVICE_BUS_NAMESPACE "$SERVICE_BUS_NAMESPACE"
+  SOURCE_REPOSITORY itsvedantkumar/factory-ai
+  SOURCE_REF "$commit"
+)
+for variable in FACTORY_STORAGE_ACCOUNT FACTORY_NAME FACTORY_PURPOSE AWS_REGION FACTORY_MODEL_SCOUT FACTORY_MODEL_PLANNER FACTORY_MODEL_BUILDER FACTORY_MODEL_TESTER FACTORY_MODEL_DEBUGGER FACTORY_MODEL_REVIEWER FACTORY_MODEL_SECURITY FACTORY_MODEL_RELEASE FACTORY_COMPACT_AFTER_INPUT_TOKENS FACTORY_COMPACT_MAX_CHARACTERS FACTORY_WATCHDOG_STALE_SECONDS FACTORY_HOOKS_JSON; do
+  [[ -n ${!variable:-} ]] && deployment_parameters+=("$variable" "${!variable}")
+done
+if ! bash "$temporary/source/bootstrap/deploy-runtime.sh" "${deployment_parameters[@]}"; then
   printf 'Candidate deployment failed. Restoring previous runtime.\n' >&2
   if [[ $previous_commit =~ ^[0-9a-f]{40}$ ]]; then
-    bash "$temporary/rollback-deploy.sh" \
-      KEY_VAULT_NAME "$KEY_VAULT_NAME" \
-      SERVICE_BUS_NAMESPACE "$SERVICE_BUS_NAMESPACE" \
-      SERVICE_BUS_QUEUE code-tasks \
-      SOURCE_REPOSITORY itsvedantkumar/factory-ai \
-      SOURCE_REF "$previous_commit"
+    for ((index=0; index<${#deployment_parameters[@]}; index+=2)); do
+      [[ ${deployment_parameters[index]} == SOURCE_REF ]] && deployment_parameters[index+1]=$previous_commit
+    done
+    bash "$temporary/rollback-deploy.sh" "${deployment_parameters[@]}"
   fi
   exit 1
 fi

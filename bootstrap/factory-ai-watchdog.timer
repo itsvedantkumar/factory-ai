@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Factory AI agent heartbeats every minute
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=1m
+RandomizedDelaySec=5
+Persistent=true
+
+[Install]
+WantedBy=timers.target

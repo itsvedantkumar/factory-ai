@@ -15,7 +15,7 @@ const control = new ControlPlane({
   store: new StateStore(config.stateDir),
   memory: new ProjectMemory(config.memoryDir),
   registry: await loadRegistry(config.registryPath),
-  sendTask: (message) => sendMessage(bus.sender, message, `${message.objectiveId}:${message.task.id}:v1`, message.objectiveId),
+  sendTask: (message) => sendMessage(bus.sender, message, `${message.objectiveId}:${message.task.id}:${message.approvalGranted ? "approved" : "v1"}`, message.objectiveId),
   sendRelease: (message) => sendMessage(releaseSender, message, `${message.objectiveId}:publish:v1`, message.objectiveId),
 });
 
@@ -28,11 +28,16 @@ const subscription = bus.receiver.subscribe({
       else if (message.body?.type === "result") await control.acceptTaskResult(message.body);
       else if (message.body?.type === "release_result") await control.acceptReleaseResult(message.body);
       else if (message.body?.type === "failure_result") await control.acceptFailure(message.body);
+      else if (message.body?.type === "approval_request") await control.acceptApprovalRequest(message.body);
+      else if (message.body?.type === "approval_decision") await control.acceptApprovalDecision(message.body);
       else throw new Error(`Unsupported control message type: ${message.body?.type}`);
       await bus.receiver.completeMessage(message);
     } catch (error) {
       log("error", "control_message_failed", { messageId: String(message.messageId), deliveryCount: message.deliveryCount, error: error.message });
       if (message.deliveryCount >= config.maxDeliveryCount) {
+        if (message.body?.objectiveId && message.body?.type === "planning_result") {
+          await control.acceptFailure({ type: "failure_result", objectiveId: message.body.objectiveId, taskId: "planner0", error: `Planner output remained invalid after ${message.deliveryCount} deliveries: ${error.message}` });
+        }
         await bus.receiver.deadLetterMessage(message, { deadLetterReason: "MaxDeliveryExceeded", deadLetterErrorDescription: error.message.slice(0, 4096) });
       } else await bus.receiver.abandonMessage(message);
     }

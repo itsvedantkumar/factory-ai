@@ -73,7 +73,13 @@ factory ui
 | `factory issue OWNER/REPO NUMBER` | Turn a GitHub issue into a tracked objective |
 | `factory telegram configure` | Configure allowlisted Telegram remote intake |
 | `factory dashboard` | Objectives, agents, models, queue, DLQ, and Azure cost |
-| `factory init PATH` | Create durable repo-local project context |
+| `factory init PATH` | Create `AGENTS.md` and durable repo-local project context without overwriting existing files |
+| `factory models show` | Show effective role-to-model routes |
+| `factory models set ROLE PROVIDER/MODEL` | Validate and atomically switch a role to a new model |
+| `factory models reset ROLE` | Restore a role to the versioned default |
+| `factory configure models` | Interactively change model routing after setup |
+| `factory acp REQUEST.json` | Submit a strictly validated optional ACP objective |
+| `factory extension verify MANIFEST ARTIFACT PUBLIC_KEY` | Verify a signed extension manifest and immutable artifact digest |
 | `factory doctor` | Services, storage, memory, and host health |
 | `factory queue` | Queue and dead-letter depth |
 | `factory logs` | Consolidated service logs |
@@ -157,7 +163,7 @@ Every repository gets two memory layers:
 
 Built-in progressive skills include `/goal`, `/loop`, project context, systematic debugging, TDD, verification, security review, dependency security, browser verification, release discipline, and token efficiency. Context7 and Playwright MCPs are pinned and role-scoped.
 
-Use `factory init PATH` to create `.agent-factory/` project, architecture, commands, decisions, risks, and handoff files without overwriting existing context.
+Use `factory init PATH` to create a safe root `AGENTS.md` plus `.agent-factory/` project, architecture, commands, decisions, risks, and handoff files without overwriting existing context. The runtime discovers repository `AGENTS.md` instructions for planners and workers. Active Azure and Bedrock conversations compact automatically after their configured token threshold while preserving bounded recent tool evidence.
 
 ## Credentials
 

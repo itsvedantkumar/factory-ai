@@ -94,3 +94,14 @@ test("renders narrow terminals safely and emits deterministic JSON", () => {
   assert.equal(stableStringify({ z: 1, a: { y: 2, b: 3 } }), '{"a":{"b":3,"y":2},"z":1}\n');
   assert.equal(humanDuration(3661), "1h 1m");
 });
+
+test("surfaces stale agents as degraded runtime health", () => {
+  const staleState = structuredClone(state);
+  staleState.activity = { "test-one": { type: "agent.heartbeat", phase: "tool.started:npm", occurredAt: "2026-07-12T09:00:00.000Z", retryCount: 2, lastError: "rate limited" } };
+  const dashboard = aggregateDashboard({ states: [staleState], now: new Date("2026-07-12T10:03:00.000Z") });
+
+  assert.equal(dashboard.health.status, "degraded");
+  assert.equal(dashboard.health.staleAgents, 1);
+  assert.equal(dashboard.objectives[0].tasks[1].retries, 2);
+  assert.equal(dashboard.objectives[0].tasks[1].lastError, "rate limited");
+});

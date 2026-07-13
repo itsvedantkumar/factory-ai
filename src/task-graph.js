@@ -60,8 +60,3 @@ export function readyTasks(tasks, results) {
     .filter((task) => task.dependsOn.every((id) => results[id]?.status === "succeeded"))
     .map((task) => task.id);
 }
-
-export function applyTaskResult(state, result) {
-  if (state.results[result.taskId]) return state;
-  return { ...state, results: { ...state.results, [result.taskId]: result } };
-}

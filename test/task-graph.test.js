@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateGraph, validateDeliveryGraph, readyTasks, applyTaskResult } from "../src/task-graph.js";
+import { validateGraph, validateDeliveryGraph, readyTasks } from "../src/task-graph.js";
 
 const tasks = [
   { id: "scout", dependsOn: [] },
@@ -24,13 +24,6 @@ test("rejects cycles and missing dependencies", () => {
     { id: "a", dependsOn: ["b"] },
     { id: "b", dependsOn: ["a"] },
   ]), /cycle/);
-});
-
-test("applies results idempotently", () => {
-  const state = { results: {} };
-  const first = applyTaskResult(state, { taskId: "scout", status: "succeeded", summary: "found" });
-  const second = applyTaskResult(first, { taskId: "scout", status: "failed", summary: "late duplicate" });
-  assert.equal(second.results.scout.status, "succeeded");
 });
 
 test("requires tester, reviewer, and security approval paths before terminal release", () => {

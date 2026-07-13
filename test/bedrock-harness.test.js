@@ -31,3 +31,25 @@ test("rejects Bedrock calls to unknown tools", async () => {
   });
   await assert.rejects(() => harness.run("work"), /Tool not allowed/);
 });
+
+test("automatically compacts oversized Bedrock conversation history", async () => {
+  const requests = [];
+  const events = [];
+  const harness = new BedrockHarness({
+    client: { send: async (command) => {
+      requests.push(command.input);
+      if (requests.length === 1) return { usage: { inputTokens: 60 }, output: { message: { role: "assistant", content: [{ toolUse: { toolUseId: "x", name: "read_file", input: {} } }] } } };
+      return { output: { message: { role: "assistant", content: [{ text: "done" }] } } };
+    } },
+    model: "model-id",
+    compactAfterInputTokens: 50,
+    onEvent: (event) => events.push(event),
+    tools: { read_file: { description: "read", parameters: { type: "object" }, execute: async () => "important evidence" } },
+  });
+
+  await harness.run("Original objective");
+
+  assert.equal(requests[1].messages.length, 1);
+  assert.match(requests[1].messages[0].content[0].text, /COMPACTED EXECUTION CHECKPOINT/);
+  assert.equal(events.some((event) => event.type === "context.compacted"), true);
+});

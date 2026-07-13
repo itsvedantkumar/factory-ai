@@ -24,7 +24,10 @@ const subscription = bus.receiver.subscribe({
       await bus.receiver.completeMessage(message);
     } catch (error) {
       log("error", "release_failed", { deliveryCount: message.deliveryCount, error: error.message });
-      if (message.deliveryCount >= config.maxDeliveryCount) await bus.receiver.deadLetterMessage(message, { deadLetterReason: "ReleaseFailed", deadLetterErrorDescription: error.message.slice(0, 4096) });
+      if (message.deliveryCount >= config.maxDeliveryCount) {
+        if (message.body?.objectiveId) await sendMessage(bus.sender, { type: "failure_result", objectiveId: message.body.objectiveId, taskId: "release", error: `Release failed after ${message.deliveryCount} deliveries: ${error.message}` }, `${message.body.objectiveId}:release-failure:v1`, message.body.objectiveId);
+        await bus.receiver.deadLetterMessage(message, { deadLetterReason: "ReleaseFailed", deadLetterErrorDescription: error.message.slice(0, 4096) });
+      }
       else await bus.receiver.abandonMessage(message);
     }
   },

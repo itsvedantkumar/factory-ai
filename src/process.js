@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 
 export function run(command, args, options = {}) {
-  const { cwd, env, inheritEnv = true, timeoutMs = 300_000, input, allowExitCodes = [0], maxOutputBytes = 10_000_000 } = options;
+  const { cwd, env, inheritEnv = true, timeoutMs = 300_000, input, allowExitCodes = [0], maxOutputBytes = 10_000_000, onStdout, onStderr } = options;
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
@@ -27,8 +27,8 @@ export function run(command, args, options = {}) {
       if (stream === "stdout") stdout += chunk;
       else stderr += chunk;
     }
-    child.stdout.on("data", (chunk) => appendOutput("stdout", chunk));
-    child.stderr.on("data", (chunk) => appendOutput("stderr", chunk));
+    child.stdout.on("data", (chunk) => { appendOutput("stdout", chunk); onStdout?.(chunk); });
+    child.stderr.on("data", (chunk) => { appendOutput("stderr", chunk); onStderr?.(chunk); });
     child.on("error", (error) => {
       clearTimeout(timer);
       reject(error);

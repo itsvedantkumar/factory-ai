@@ -48,7 +48,11 @@ export function formatObjectiveProgress(state, factoryName = "Factory AI") {
     `Status: ${state.status ?? "unknown"}`,
     `${complete}/${tasks.length} tasks complete`,
   ];
-  for (const task of tasks.slice(0, 20)) lines.push(`${task.role}: ${results[task.id]?.status ?? "blocked"} — ${task.title}`);
+  for (const task of tasks.slice(0, 20)) {
+    const activity = state.activity?.[task.id];
+    const detail = activity ? ` — ${activity.phase ?? activity.type}${activity.tool ? ` ${activity.tool}` : ""}${activity.retryCount ? ` (${activity.retryCount} retries)` : ""}${activity.lastError ? ` [${activity.lastError}]` : ""}` : "";
+    lines.push(`${task.role}: ${results[task.id]?.status ?? "blocked"} — ${task.title}${detail}`);
+  }
   if (state.failure) lines.push(`Blocker: ${String(state.failure).slice(0, 500)}`);
   if (state.release?.url) lines.push(`PR: ${state.release.url}`);
   return lines.join("\n").slice(0, 4000);

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { run } from "./process.js";
+import { mergeRepositoryContext } from "./repo-map.js";
 
 const textExtensions = new Set([".c", ".cc", ".cpp", ".cs", ".css", ".go", ".h", ".hpp", ".html", ".java", ".js", ".jsx", ".json", ".md", ".mdx", ".php", ".py", ".rb", ".rs", ".scss", ".sh", ".sql", ".svelte", ".toml", ".ts", ".tsx", ".vue", ".yaml", ".yml"]);
 const ignoredDirectories = new Set([".git", ".next", ".turbo", "build", "coverage", "dist", "node_modules", "vendor"]);
@@ -18,15 +19,8 @@ export function chunkText(file, value, { linesPerChunk = 120, overlapLines = 20 
   return chunks;
 }
 
-export function formatRetrievedContext(points, maxCharacters = 12_000) {
-  let output = "";
-  for (const point of points) {
-    const payload = point.payload ?? {};
-    const section = `\n--- ${payload.path}:${payload.startLine} score=${Number(point.score ?? 0).toFixed(3)} ---\n${payload.content ?? ""}\n`;
-    if (output.length + section.length > maxCharacters) break;
-    output += section;
-  }
-  return output.trim();
+export function formatRetrievedContext(points, maxCharacters = 12_000, repositoryEntries = []) {
+  return mergeRepositoryContext(repositoryEntries, points, maxCharacters).semanticText;
 }
 
 async function collectFiles(directory, root, output, limits) {
@@ -40,6 +34,14 @@ async function collectFiles(directory, root, output, limits) {
       if (metadata.size <= limits.maxFileBytes) output.push({ absolute, relative: path.relative(root, absolute) });
     }
   }
+}
+
+async function workspaceRevision(directory) {
+  const head = (await run("git", ["-C", directory, "rev-parse", "HEAD"])).stdout.trim();
+  const status = (await run("git", ["-C", directory, "status", "--porcelain=v1"], { maxOutputBytes: 200_000 })).stdout;
+  if (!status) return head;
+  const diff = (await run("git", ["-C", directory, "diff", "--binary", "HEAD"], { maxOutputBytes: 2_000_000 })).stdout;
+  return `${head}-worktree-${createHash("sha256").update(status).update(diff).digest("hex").slice(0, 16)}`;
 }
 
 function pointId(value) {
@@ -101,9 +103,9 @@ export class LocalRetriever {
   }
 
   async #index(directory, repository) {
-    const commit = (await run("git", ["-C", directory, "rev-parse", "HEAD"])).stdout.trim();
+    const commit = await workspaceRevision(directory);
     const manifest = await this.loadManifest();
-    if (manifest[repository]?.commit === commit && manifest[repository]?.model === this.model) return false;
+    if (manifest[repository]?.[commit]?.model === this.model) return false;
     const files = [];
     await collectFiles(directory, directory, files, { maxFiles: 2000, maxFileBytes: 256_000 });
     const chunks = [];
@@ -122,9 +124,6 @@ export class LocalRetriever {
         method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ vectors: { size: vectorSize, distance: "Cosine" } }),
       });
     } else if (!collectionResponse.ok) throw new Error(`Qdrant collection HTTP ${collectionResponse.status}`);
-    await this.request(`${this.qdrantUrl}/collections/${this.collection}/points/delete?wait=true`, {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ filter: { must: [{ key: "repository", match: { value: repository } }] } }),
-    });
     for (let start = 0; start < selected.length; start += 32) {
       const batch = selected.slice(start, start + 32);
       const remaining = batch.slice(1);
@@ -136,19 +135,20 @@ export class LocalRetriever {
         method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ points }),
       });
     }
-    manifest[repository] = { commit, model: this.model, chunks: selected.length, indexedAt: new Date().toISOString() };
+    manifest[repository] = { ...(manifest[repository]?.commit ? {} : manifest[repository]), [commit]: { model: this.model, chunks: selected.length, indexedAt: new Date().toISOString() } };
     await this.saveManifest(manifest);
     return true;
   }
 
-  async context(directory, repository, query, { limit = 8, maxCharacters = 12_000 } = {}) {
+  async context(directory, repository, query, { limit = 8, maxCharacters = 12_000, repositoryEntries = [] } = {}) {
     await this.ensureIndexed(directory, repository);
+    const commit = await workspaceRevision(directory);
     const [vector] = await this.embed([query]);
     const result = await this.request(`${this.qdrantUrl}/collections/${this.collection}/points/query`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query: vector, filter: { must: [{ key: "repository", match: { value: repository } }] }, limit, with_payload: true }),
+      body: JSON.stringify({ query: vector, filter: { must: [{ key: "repository", match: { value: repository } }, { key: "commit", match: { value: commit } }] }, limit, with_payload: true }),
     });
-    return formatRetrievedContext(result.result?.points ?? [], maxCharacters);
+    return formatRetrievedContext(result.result?.points ?? [], maxCharacters, repositoryEntries);
   }
 }

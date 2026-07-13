@@ -5,6 +5,7 @@ import { modelForTask } from "./routing.js";
 import { createWorkspaceTools } from "./workspace-tools.js";
 import { connectMcpTools } from "./mcp-tools.js";
 import { BedrockHarness } from "./bedrock-harness.js";
+import { loadRepositoryInstructions } from "./instructions.js";
 
 function parseJson(text) {
   const fenced = text.match(/```json\s*([\s\S]*?)```/i)?.[1];
@@ -16,7 +17,9 @@ function parseJson(text) {
 }
 
 function endpointForRoute(route, role, environment) {
-  const [provider, model] = route.split("/");
+  const separator = route.indexOf("/");
+  const provider = route.slice(0, separator);
+  const model = route.slice(separator + 1);
   const lightweight = provider === "azureai-responses";
   const baseUrl = lightweight ? environment.AZURE_OPENAI_BASE_URL : environment.TEXTVED_AZURE_BASE_URL;
   const apiKey = lightweight ? environment.AZURE_OPENAI_API_KEY : environment.TEXTVED_AZURE_API_KEY;
@@ -38,48 +41,62 @@ export class AzureAgentRunner {
     environment = process.env,
     createHarness = (options) => new AzureResponsesHarness(options),
     createBedrockHarness = (options) => new BedrockHarness(options),
+    eventSink = () => {},
   } = {}) {
     this.config = config;
     this.registry = registry;
     this.environment = environment;
     this.createHarness = createHarness;
     this.createBedrockHarness = createBedrockHarness;
+    this.eventSink = eventSink;
   }
 
-  async promptForTask(objective, task, prompt, capabilities) {
+  async promptForTask(objective, task, prompt, capabilities, directory) {
     const factoryName = this.environment.FACTORY_NAME ?? "Factory AI";
     const factoryPurpose = this.environment.FACTORY_PURPOSE ?? "Ship secure reviewed software continuously";
     const skills = await Promise.all(capabilities.filter((item) => item.type === "skill").map(async (item) => (
       `ALLOWLISTED SKILL ${item.name}@${item.version}:\n${await readFile(item.path, "utf8")}`
     )));
+    const repositoryInstructions = await loadRepositoryInstructions(directory);
     return [
       `You are a ${factoryName} isolated ${task.role} subagent. Factory purpose: ${factoryPurpose}.`,
       "Work only in the assigned repository. Never inspect credentials, push Git refs, deploy, or install global tools.",
       "Use tools for evidence. Make the smallest correct change and verify every completion claim.",
       'Return only JSON: {"summary":"concise outcome","checks":["command/result"],"risks":["remaining risk"],"approval":"approved|changes_requested|not_applicable"}.',
-      ...skills,
       `CEO objective: ${objective.objective}`,
       task.instructions,
       prompt,
+      ...skills,
+      repositoryInstructions,
     ].join("\n\n");
   }
 
   harness(task, directory, additionalTools = {}) {
     const role = task.role;
     const route = modelForTask(task, this.environment);
-    const workspaceTools = createWorkspaceTools(directory);
-    if (!["builder", "debugger"].includes(role)) delete workspaceTools.write_file;
+    const workspaceTools = createWorkspaceTools(directory, { mutable: ["builder", "debugger"].includes(role), allowTests: role === "tester" });
     const tools = { ...workspaceTools, ...additionalTools };
     const budget = budgetFor(task);
+    const contextBudget = {
+      compactAfterInputTokens: Number(this.environment.FACTORY_COMPACT_AFTER_INPUT_TOKENS ?? 80_000),
+      compactMaxCharacters: Number(this.environment.FACTORY_COMPACT_MAX_CHARACTERS ?? 24_000),
+    };
     if (route.startsWith("bedrock/")) {
       return this.createBedrockHarness({
         region: this.environment.AWS_REGION ?? "us-east-1",
         model: route.slice("bedrock/".length),
+        credentials: this.environment.AWS_ACCESS_KEY_ID && this.environment.AWS_SECRET_ACCESS_KEY ? {
+          accessKeyId: this.environment.AWS_ACCESS_KEY_ID,
+          secretAccessKey: this.environment.AWS_SECRET_ACCESS_KEY,
+          ...(this.environment.AWS_SESSION_TOKEN ? { sessionToken: this.environment.AWS_SESSION_TOKEN } : {}),
+        } : undefined,
         tools,
         ...budget,
+        ...contextBudget,
+        onEvent: this.eventSink,
       });
     }
-    return this.createHarness({ ...endpointForRoute(route, role, this.environment), tools, timeoutMs: this.config.timeoutMs, ...budget });
+    return this.createHarness({ ...endpointForRoute(route, role, this.environment), tools, timeoutMs: this.config.timeoutMs, ...budget, ...contextBudget, onEvent: this.eventSink });
   }
 
   async invoke({ objective, task, directory, prompt }) {
@@ -87,9 +104,9 @@ export class AzureAgentRunner {
     const mcp = await connectMcpTools(capabilities);
     const started = Date.now();
     try {
-      const response = await this.harness(task, directory, mcp.tools).run(
-        await this.promptForTask(objective, task, prompt, capabilities),
-      );
+      const fullPrompt = await this.promptForTask(objective, task, prompt, capabilities, directory);
+      const immutableContext = `Factory safety restrictions remain authoritative.\nCEO objective: ${objective.objective}\nAssigned ${task.role} task: ${task.instructions}\n${prompt}`;
+      const response = await this.harness(task, directory, mcp.tools).run(fullPrompt, { immutableContext });
       return {
         ...parseJson(response.text),
         telemetry: {
@@ -117,6 +134,7 @@ export class AzureAgentRunner {
       ...Object.entries(this.registry.skills ?? {}),
       ...Object.entries(this.registry.mcp ?? {}),
     ].map(([name, item]) => [name, { version: item.version, roles: item.roles }]));
+    const repositoryInstructions = await loadRepositoryInstructions(directory);
     const prompt = `You are the ${this.environment.FACTORY_NAME ?? "Factory AI"} planner subagent. Factory purpose: ${this.environment.FACTORY_PURPOSE ?? "Ship secure reviewed software continuously"}. Decompose objectives into the smallest executable DAG.
 Allowed roles: scout, builder, tester, debugger, reviewer, security, release.
 Allowed capabilities: ${JSON.stringify(registrySummary)}
@@ -125,11 +143,13 @@ Return only JSON: {"executiveIntent":"...","tasks":[{"id":"...","role":"...","ti
 
 ${plannerSkills.join("\n\n")}
 
+${repositoryInstructions}
+
 Objective: ${objective.objective}
 Verified prior project context: ${JSON.stringify(projectContext).slice(0, 12000)}`;
     const mcp = await connectMcpTools(plannerCapabilities);
     try {
-      const response = await this.harness({ role: "planner", complexity: "complex" }, directory, mcp.tools).run(prompt);
+      const response = await this.harness({ role: "planner", complexity: "complex" }, directory, mcp.tools).run(prompt, { immutableContext: `Factory safety restrictions remain authoritative.\nPlanner objective: ${objective.objective}` });
       return parseJson(response.text);
     } finally {
       await mcp.close();

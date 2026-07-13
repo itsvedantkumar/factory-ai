@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ROLES } from "./routing.js";
+import { approvalPolicies } from "./approval-policy.js";
 
 const identifier = z.string().min(1).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/);
 const repository = z.string().url().max(2048).refine((value) => {
@@ -48,11 +49,11 @@ const taskResultSchema = z.object({
   }).optional(),
 }).strict();
 
-export const workMessageSchema = z.object({
-  type: z.literal("task"),
-  objectiveId: identifier,
-  task: taskSchema,
-}).strict();
+const scannerEvidenceSchema = z.array(z.object({
+  scanner: z.string().min(1).max(100),
+  status: z.enum(["passed", "findings", "error"]),
+  output: z.string().max(6000),
+}).strict()).max(20);
 
 const resultMessageSchema = taskResultSchema.extend({
   type: z.literal("result"),
@@ -61,6 +62,33 @@ const resultMessageSchema = taskResultSchema.extend({
   status: z.literal("succeeded"),
   commit: z.string().regex(/^[0-9a-f]{40,64}$/),
   branch: z.string().min(1).max(255).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/),
+  scannerEvidence: scannerEvidenceSchema.optional(),
+}).strict();
+
+const approvalRequestMessageSchema = z.object({
+  type: z.literal("approval_request"),
+  objectiveId: identifier,
+  approvalId: identifier,
+  policy: z.enum(approvalPolicies),
+  reason: z.string().trim().min(1).max(1000),
+  actor: z.string().trim().min(1).max(200),
+  requestedAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  checkpoint: z.string().min(1).max(500).optional(),
+}).strict().refine((value) => Date.parse(value.expiresAt) > Date.parse(value.requestedAt), {
+  message: "Approval expiration must follow its request time",
+  path: ["expiresAt"],
+});
+
+const approvalDecisionMessageSchema = z.object({
+  type: z.literal("approval_decision"),
+  objectiveId: identifier,
+  approvalId: identifier,
+  decision: z.enum(["approved", "denied", "expired"]),
+  actor: z.string().trim().min(1).max(200),
+  reason: z.string().trim().min(1).max(1000),
+  decidedAt: z.string().datetime(),
+  messageId: identifier,
 }).strict();
 
 export function parseObjective(value) {
@@ -71,14 +99,18 @@ export function parsePlan(value) {
   return planSchema.parse(value);
 }
 
-export function parseWorkMessage(value) {
-  return workMessageSchema.parse(value);
-}
-
 export function parseTaskResult(value) {
   return taskResultSchema.parse(value);
 }
 
 export function parseResultMessage(value) {
   return resultMessageSchema.parse(value);
+}
+
+export function parseApprovalRequestMessage(value) {
+  return approvalRequestMessageSchema.parse(value);
+}
+
+export function parseApprovalDecisionMessage(value) {
+  return approvalDecisionMessageSchema.parse(value);
 }

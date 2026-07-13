@@ -10,7 +10,6 @@ fi
 : "${KEY_VAULT_NAME:?Set KEY_VAULT_NAME to the existing vault name}"
 : "${SERVICE_BUS_NAMESPACE:?Set SERVICE_BUS_NAMESPACE to the existing namespace name}"
 : "${FACTORY_WORKER_IMAGE:?Set FACTORY_WORKER_IMAGE to an immutable image tag}"
-SERVICE_BUS_QUEUE=${SERVICE_BUS_QUEUE:-code-tasks}
 APP_DIR=${APP_DIR:-/opt/agent-factory/app}
 FACTORY_USER=${FACTORY_USER:-factory}
 
@@ -18,11 +17,11 @@ chmod 0755 /opt/agent-factory "$APP_DIR"
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl gpg git jq
+apt-get install -y ca-certificates curl gpg git jq iptables
 
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /etc/apt/keyrings/nodesource.gpg
-printf '%s\n' 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main' > /etc/apt/sources.list.d/nodesource.list
+printf '%s\n' 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main' > /etc/apt/sources.list.d/nodesource.list
 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
 chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
 printf '%s\n' "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list
@@ -30,7 +29,7 @@ curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor --y
 printf '%s\n' "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/azure-cli/ $(. /etc/os-release && echo "$VERSION_CODENAME") main" > /etc/apt/sources.list.d/azure-cli.list
 apt-get update
 apt-get install -y azure-cli gh nodejs
-test "$(node --version | cut -d. -f1)" = "v20"
+test "$(node --version | cut -d. -f1)" = "v22"
 
 id "$FACTORY_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin "$FACTORY_USER"
 test -f "$APP_DIR/package-lock.json"
@@ -46,6 +45,7 @@ for scanner_image in \
 done
 docker pull ollama/ollama@sha256:3d8a05e3432d50ea57594fabe971e46cc8fe963a0f9f8c40400bd56cd5388e47
 docker pull qdrant/qdrant@sha256:31407c0e8e32eb771b71718f1a4772e2ad47a07557917b21ac96792f40eb8007
+iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null || iptables -I DOCKER-USER -d 169.254.169.254/32 -j REJECT
 
 STATE_DEVICE=/dev/disk/azure/scsi1/lun0
 if [[ -b $STATE_DEVICE ]]; then
@@ -68,6 +68,9 @@ for secret_name in "${GITHUB_TOKEN_SECRET:-github-token}"; do
 done
 
 install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/home /opt/agent-factory/state/memory /opt/agent-factory/state/telegram /opt/agent-factory/state/retrieval /opt/agent-factory/workspaces /opt/agent-factory/logs
+if [[ -f /opt/agent-factory/state/memory/knowledge-graph.jsonl && ! -e /opt/agent-factory/state/memory/legacy-unscoped-knowledge-graph.jsonl ]]; then
+  mv /opt/agent-factory/state/memory/knowledge-graph.jsonl /opt/agent-factory/state/memory/legacy-unscoped-knowledge-graph.jsonl
+fi
 install -d -o root -g root -m 0750 /opt/agent-factory/state/qdrant /opt/agent-factory/state/qdrant-snapshots /opt/agent-factory/state/ollama
 install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
 {
@@ -88,10 +91,11 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'FACTORY_PURPOSE=%s\n' "${FACTORY_PURPOSE:-Ship secure reviewed software continuously}"
   printf 'MAX_CONCURRENCY=3\n'
   printf 'TASK_TIMEOUT_MS=1800000\n'
+  printf 'FACTORY_COMPACT_AFTER_INPUT_TOKENS=%s\n' "${FACTORY_COMPACT_AFTER_INPUT_TOKENS:-80000}"
+  printf 'FACTORY_COMPACT_MAX_CHARACTERS=%s\n' "${FACTORY_COMPACT_MAX_CHARACTERS:-24000}"
+  printf 'FACTORY_WATCHDOG_STALE_SECONDS=%s\n' "${FACTORY_WATCHDOG_STALE_SECONDS:-900}"
+  printf 'FACTORY_HOOKS_JSON=%s\n' "${FACTORY_HOOKS_JSON:-[]}"
   printf 'MAX_DELIVERY_COUNT=8\n'
-  printf 'FACTORY_VERSION=%s\n' "$factory_version"
-  printf 'FACTORY_NAME=%s\n' "${FACTORY_NAME:-Factory AI}"
-  printf 'FACTORY_PURPOSE=%s\n' "${FACTORY_PURPOSE:-Ship secure reviewed software continuously}"
   [[ -n ${AWS_REGION:-} ]] && printf 'AWS_REGION=%s\nAWS_DEFAULT_REGION=%s\n' "$AWS_REGION" "$AWS_REGION"
   for variable in FACTORY_MODEL_SCOUT FACTORY_MODEL_PLANNER FACTORY_MODEL_BUILDER FACTORY_MODEL_TESTER FACTORY_MODEL_DEBUGGER FACTORY_MODEL_REVIEWER FACTORY_MODEL_SECURITY FACTORY_MODEL_RELEASE; do
     [[ -n ${!variable:-} ]] && printf '%s=%s\n' "$variable" "${!variable}"
@@ -111,6 +115,8 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
   printf 'MAX_DELIVERY_COUNT=8\n'
+  printf 'FACTORY_COMPACT_AFTER_INPUT_TOKENS=%s\n' "${FACTORY_COMPACT_AFTER_INPUT_TOKENS:-80000}"
+  printf 'FACTORY_COMPACT_MAX_CHARACTERS=%s\n' "${FACTORY_COMPACT_MAX_CHARACTERS:-24000}"
   [[ -n ${AWS_REGION:-} ]] && printf 'AWS_REGION=%s\nAWS_DEFAULT_REGION=%s\n' "$AWS_REGION" "$AWS_REGION"
   for variable in FACTORY_MODEL_SCOUT FACTORY_MODEL_PLANNER FACTORY_MODEL_BUILDER FACTORY_MODEL_TESTER FACTORY_MODEL_DEBUGGER FACTORY_MODEL_REVIEWER FACTORY_MODEL_SECURITY FACTORY_MODEL_RELEASE; do
     [[ -n ${!variable:-} ]] && printf '%s=%s\n' "$variable" "${!variable}"
@@ -123,6 +129,7 @@ chmod 0750 /opt/agent-factory/state/qdrant /opt/agent-factory/state/qdrant-snaps
 chown -R root:root "$APP_DIR"
 chmod -R go-w "$APP_DIR"
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-worker.service" /etc/systemd/system/agent-factory-worker.service
+install -m 0644 "$APP_DIR/bootstrap/factory-ai-container-firewall.service" /etc/systemd/system/factory-ai-container-firewall.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-control.service" /etc/systemd/system/agent-factory-control.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-release.service" /etc/systemd/system/agent-factory-release.service
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-reporter.service" /etc/systemd/system/agent-factory-reporter.service
@@ -132,17 +139,21 @@ chmod 0755 "$APP_DIR/bootstrap/auto-update.sh"
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-update.service" /etc/systemd/system/factory-ai-update.service
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-update.timer" /etc/systemd/system/factory-ai-update.timer
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-snapshot.service" /etc/systemd/system/factory-ai-snapshot.service
-install -m 0644 "$APP_DIR/bootstrap/factory-ai-snapshot.timer" /etc/systemd/system/factory-ai-snapshot.timer
+  install -m 0644 "$APP_DIR/bootstrap/factory-ai-snapshot.timer" /etc/systemd/system/factory-ai-snapshot.timer
+  install -m 0644 "$APP_DIR/bootstrap/factory-ai-watchdog.service" /etc/systemd/system/factory-ai-watchdog.service
+  install -m 0644 "$APP_DIR/bootstrap/factory-ai-watchdog.timer" /etc/systemd/system/factory-ai-watchdog.timer
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-qdrant.service" /etc/systemd/system/factory-ai-qdrant.service
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-ollama.service" /etc/systemd/system/factory-ai-ollama.service
 systemctl daemon-reload
+systemctl enable --now factory-ai-container-firewall.service
 systemctl enable --now agent-factory-worker.service
 systemctl enable --now agent-factory-control.service
 systemctl enable --now agent-factory-release.service
 systemctl enable --now agent-factory-reporter.timer
 systemctl enable --now agent-factory-telegram.service
 systemctl enable --now factory-ai-update.timer
-systemctl enable --now factory-ai-snapshot.timer
+  systemctl enable --now factory-ai-snapshot.timer
+  systemctl enable --now factory-ai-watchdog.timer
 systemctl enable --now factory-ai-qdrant.service factory-ai-ollama.service
 for _ in $(seq 1 60); do curl -fsS http://127.0.0.1:11434/api/tags >/dev/null && break; sleep 2; done
 docker exec factory-ai-ollama ollama show embeddinggemma >/dev/null 2>&1 || docker exec factory-ai-ollama ollama pull embeddinggemma

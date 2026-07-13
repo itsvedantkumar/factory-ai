@@ -31,6 +31,23 @@ test("runs allowlisted commands without inherited credentials", async () => {
   assert.equal(calls[0].options.inheritEnv, false);
   await assert.rejects(() => tools.run_command.execute({ command: "curl", args: ["https://example.com"] }), /Command not allowed/);
   await assert.rejects(() => tools.run_command.execute({ command: "git", args: ["push", "origin", "main"] }), /Git operation not allowed/);
+  await assert.rejects(() => tools.run_command.execute({ command: "git", args: ["-c", "alias.ship=push", "ship"] }), /Git operation not allowed/);
+});
+
+test("read-only roles cannot mutate through command tools", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-tools-"));
+  const tools = createWorkspaceTools(root, { mutable: false, execute: async () => ({ code: 0, stdout: "ok", stderr: "" }) });
+  assert.equal(tools.write_file, undefined);
+  await assert.rejects(() => tools.run_command.execute({ command: "node", args: ["-e", "require('fs').writeFileSync('x','x')"] }), /read-only role/);
+  await assert.rejects(() => tools.run_command.execute({ command: "git", args: ["checkout", "other"] }), /read-only role/);
+  assert.equal(await tools.run_command.execute({ command: "git", args: ["status", "--short"] }), "ok");
+});
+
+test("tester roles can run project test gates without receiving write tools", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-tools-"));
+  const tools = createWorkspaceTools(root, { mutable: false, allowTests: true, execute: async () => ({ code: 0, stdout: "passed", stderr: "" }) });
+  assert.equal(await tools.run_command.execute({ command: "npm", args: ["test"] }), "passed");
+  await assert.rejects(() => tools.run_command.execute({ command: "node", args: ["-e", "write()"] }), /read-only role/);
 });
 
 test("lists files with bounded output and excludes git internals", async () => {

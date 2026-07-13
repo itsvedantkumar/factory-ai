@@ -6,6 +6,7 @@ import { modelForTask } from "./routing.js";
 import { DefaultAzureCredential } from "@azure/identity";
 import { ServiceBusAdministrationClient } from "@azure/service-bus";
 import { loadConfig } from "./config.js";
+import { ActivityStore, isStaleActivity } from "./activity.js";
 
 export async function loadQueueMetrics(config, {
   createAdmin = () => new ServiceBusAdministrationClient(config.serviceBusFqdn, new DefaultAzureCredential()),
@@ -73,6 +74,7 @@ export function stableStringify(value) {
 export async function loadLocalState(root) {
   const states = [];
   const warnings = [];
+  const activityStore = new ActivityStore(root);
   let directories = [];
   try {
     directories = await readdir(root, { withFileTypes: true });
@@ -82,7 +84,9 @@ export async function loadLocalState(root) {
   for (const entry of directories.filter((item) => item.isDirectory() && item.name !== "reports").sort((a, b) => a.name.localeCompare(b.name))) {
     const file = path.join(root, entry.name, "state.json");
     try {
-      states.push(JSON.parse(await readFile(file, "utf8")));
+      const state = JSON.parse(await readFile(file, "utf8"));
+      state.activity = await activityStore.latestObjective(state.objective?.id ?? entry.name);
+      states.push(state);
     } catch (error) {
       if (error.code !== "ENOENT") warnings.push(`${file}: ${error.message}`);
     }
@@ -98,18 +102,30 @@ function taskState(task, results) {
 export function aggregateDashboard({ states = [], queue = {}, cost = null, runtime = {}, hostUptimeSeconds = 0, warnings = [], now = new Date() }) {
   const objectives = states.map((state) => {
     const results = state.results ?? {};
-    const tasks = (state.tasks ?? []).map((task) => ({
+    const plannedTasks = state.tasks?.length ? state.tasks : state.status === "planning" ? [{ id: "planner0", role: "planner", title: "Create delivery graph", dependsOn: [], complexity: "complex" }] : [];
+    const tasks = plannedTasks.map((task) => {
+      const resultState = taskState(task, results);
+      const liveActivity = state.activity?.[task.id];
+      const activity = liveActivity ?? ((resultState === "queued" || state.status === "planning") ? { type: "task.queued", occurredAt: results[task.id]?.queuedAt ?? state.createdAt } : undefined);
+      const stateValue = resultState === "queued" && liveActivity ? (liveActivity.type?.endsWith(".failed") ? "retrying" : "running") : resultState;
+      return ({
       id: task.id,
       role: task.role,
       title: task.title,
       model: modelForTask(task),
-      state: taskState(task, results),
+      state: stateValue,
       branch: results[task.id]?.branch,
       commit: results[task.id]?.commit,
       elapsedSeconds: results[task.id]?.startedAt
         ? (new Date(results[task.id]?.completedAt ?? now).getTime() - new Date(results[task.id].startedAt).getTime()) / 1000
         : 0,
-    }));
+      activity,
+      stale: isStaleActivity(activity, stateValue, now, liveActivity ? 120 : 600),
+      activityAgeSeconds: activity?.occurredAt ? Math.max(0, (now.getTime() - new Date(activity.occurredAt).getTime()) / 1000) : null,
+      retries: activity?.retryCount ?? 0,
+      lastError: activity?.lastError,
+    });
+    });
     return {
       id: state.objective?.id,
       objective: state.objective?.objective,
@@ -118,7 +134,8 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
       tasks,
       checks: Object.entries(results).flatMap(([id, result]) => (result.checks ?? []).map((check) => `${id}: ${check}`)),
       blocker: state.failure,
-      pullRequest: Object.values(results).map((result) => result.release?.url).find(Boolean),
+      pullRequest: state.release?.url ?? Object.values(results).map((result) => result.release?.url).find(Boolean),
+      approval: state.approval ? { approvalId: state.approval.approvalId, status: state.approval.status, policy: state.approval.policy, reason: state.approval.reason, expiresAt: state.approval.expiresAt } : undefined,
     };
   });
   const summary = {};
@@ -138,6 +155,7 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
     }
   }
   const startedAt = runtime.startedAt ? new Date(runtime.startedAt) : null;
+  const staleAgents = objectives.flatMap((objective) => objective.tasks).filter((task) => task.stale).length;
   return {
     generatedAt: now.toISOString(),
     worker: {
@@ -145,6 +163,7 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
       uptimeSeconds: startedAt ? Math.max(0, (now.getTime() - startedAt.getTime()) / 1000) : hostUptimeSeconds,
     },
     queue: { active: queue.active ?? 0, deadLetter: queue.deadLetter ?? 0 },
+    health: { status: staleAgents > 0 || (queue.deadLetter ?? 0) > 0 ? "degraded" : "healthy", staleAgents },
     cost,
     summary: { objectives: summary },
     modelUsage,
@@ -171,7 +190,7 @@ export function renderDashboard(dashboard, { width = 100 } = {}) {
   if (totalInput || totalOutput) lines.push(`Tokens input ${totalInput} · cached ${totalCached} · output ${totalOutput}`);
   for (const objective of dashboard.objectives) {
     lines.push("", `[${objective.status}] ${objective.id} ${objective.objective}`);
-    for (const task of objective.tasks) lines.push(`  ${task.state.padEnd(9)} ${task.role.padEnd(9)} ${task.model} · ${task.title ?? task.id}`);
+    for (const task of objective.tasks) lines.push(`  ${(task.stale ? "stale" : task.state).padEnd(9)} ${task.role.padEnd(9)} ${task.model} · ${task.title ?? task.id}${task.retries ? ` · retries ${task.retries}` : ""}`);
     if (objective.pullRequest) lines.push(`  PR ${objective.pullRequest}`);
     if (objective.blocker) lines.push(`  BLOCKED ${objective.blocker}`);
   }

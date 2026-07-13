@@ -4,12 +4,24 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-13
+
 ### Added
 
-- Full-screen terminal administration console.
-- Telegram remote objective intake with chat allowlisting.
-- Azure and Bedrock provider wizard.
-- Durable evaluation, analytics, scaling, policy, extension, and recovery roadmap.
+- Cross-platform Bubble Tea/Lip Gloss operator client with direct Azure Blob snapshots, verified release binaries, scrolling, and safe Node action fallback.
+- Automatic Azure and Bedrock context compaction with immutable objective retention and recent tool evidence.
+- Hierarchical `AGENTS.md` discovery, preconfigured project instructions, and bounded `.agent-factory` context.
+- Durable worktree crash recovery, parallel read-only tool batches, live activity timelines, retry/error telemetry, and stale-agent watchdog recovery.
+- Post-setup `factory models show|set|reset` and `factory configure models` workflows with validated routes, atomic runtime rollback, and update-safe persistence.
+- Open-source harness adoption research and executable Go CI gates.
+- Token-budgeted repository maps, safe OpenTelemetry GenAI records, Promptfoo/Inspect/Harbor evaluation contracts, typed lifecycle hooks, durable approval interrupts, optional ACP intake, and signed extension verification.
+
+### Security
+
+- Read-only role filesystems and command policy, deterministic pre-push Gitleaks enforcement, typed scanner release blockers, terminal-safe Go rendering, and structured allowlisted operator logs.
+- Repository-scoped MCP memory; legacy unscoped memory is retained as `legacy-unscoped-knowledge-graph.jsonl` instead of being mixed into new repositories.
+- Model credentials now enter agent containers through a consumed stdin envelope rather than environment variables; a persistent Docker firewall blocks cloud metadata access.
+- Release publishing now binds tags to package versions, requires full gates and npm provenance, and attests immutable Go binaries.
 
 ## [1.4.0] - 2026-07-13
 

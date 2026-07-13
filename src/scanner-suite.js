@@ -20,7 +20,7 @@ const scanners = [
   {
     name: "semgrep",
     image: "semgrep/semgrep@sha256:183a149fb3e9700ab5294a7b4ab0241a826fd046bc8b721062fbea80fdfa438f",
-    args: ["semgrep", "scan", "--config", "p/default", "--json", "/workspace"],
+    args: ["semgrep", "scan", "--error", "--config", "p/default", "--json", "/workspace"],
   },
 ];
 
@@ -37,9 +37,10 @@ export class ScannerSuite {
     this.execute = execute;
   }
 
-  async scan(directory) {
+  async scan(directory, { names } = {}) {
     const workspace = path.resolve(directory);
-    return Promise.all(scanners.map(async (scanner) => {
+    const selected = names ? scanners.filter((scanner) => names.includes(scanner.name)) : scanners;
+    return Promise.all(selected.map(async (scanner) => {
       const args = [
         "run", "--rm", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", "512", "--memory", "4g", "--cpus", "1", "--tmpfs", "/tmp:rw,noexec,nosuid,size=3g",

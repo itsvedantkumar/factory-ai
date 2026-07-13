@@ -1,8 +1,8 @@
 [Unit]
 Description=Factory AI durable worker
-After=network-online.target docker.service factory-ai-qdrant.service factory-ai-ollama.service
+After=network-online.target docker.service factory-ai-container-firewall.service factory-ai-qdrant.service factory-ai-ollama.service
 Wants=network-online.target factory-ai-qdrant.service factory-ai-ollama.service
-Requires=docker.service
+Requires=docker.service factory-ai-container-firewall.service
 StartLimitIntervalSec=300
 StartLimitBurst=10
 

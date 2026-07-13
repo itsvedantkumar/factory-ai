@@ -1,5 +1,6 @@
 import path from "node:path";
 import { z } from "zod";
+import { validateHooks } from "./hooks.js";
 
 const environmentSchema = z.object({
   SERVICE_BUS_NAMESPACE: z.string().min(3),
@@ -19,6 +20,9 @@ const environmentSchema = z.object({
   MAX_CONCURRENCY: z.coerce.number().int().min(1).max(3).default(3),
   TASK_TIMEOUT_MS: z.coerce.number().int().min(60_000).max(3_600_000).default(1_800_000),
   MAX_DELIVERY_COUNT: z.coerce.number().int().min(2).max(20).default(8),
+  FACTORY_WATCHDOG_STALE_SECONDS: z.coerce.number().int().min(300).max(7200).default(900),
+  FACTORY_REPO_MAP_MAX_CHARACTERS: z.coerce.number().int().min(2000).max(20_000).default(8000),
+  FACTORY_HOOKS_JSON: z.string().default("[]"),
   AZURE_PRIMARY_API_KEY_SECRET: z.string().min(1).default("azure-primary-api-key"),
   AZURE_PRIMARY_BASE_URL_SECRET: z.string().min(1).default("azure-primary-base-url"),
   AZURE_SMALL_API_KEY_SECRET: z.string().min(1).default("azure-small-api-key"),
@@ -34,6 +38,9 @@ const environmentSchema = z.object({
 export function loadConfig(environment = process.env) {
   const env = environmentSchema.parse(environment);
   if (env.CONTROL_QUEUE === env.AGENT_QUEUE) throw new Error("Control and agent queues must be different");
+  if (new Set([env.CONTROL_QUEUE, env.AGENT_QUEUE, env.RELEASE_QUEUE]).size !== 3) throw new Error("Control, agent, and release queues must be different");
+  let hooks;
+  try { hooks = validateHooks(JSON.parse(env.FACTORY_HOOKS_JSON)); } catch (error) { throw new Error(`Invalid FACTORY_HOOKS_JSON: ${error.message}`); }
   return {
     serviceBusFqdn: env.SERVICE_BUS_NAMESPACE.includes(".")
       ? env.SERVICE_BUS_NAMESPACE
@@ -67,5 +74,7 @@ export function loadConfig(environment = process.env) {
     concurrency: env.MAX_CONCURRENCY,
     timeoutMs: env.TASK_TIMEOUT_MS,
     maxDeliveryCount: env.MAX_DELIVERY_COUNT,
+    repoMapMaxCharacters: env.FACTORY_REPO_MAP_MAX_CHARACTERS,
+    hooks,
   };
 }

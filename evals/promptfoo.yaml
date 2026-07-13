@@ -1,0 +1,28 @@
+description: Factory AI routing, tool-policy, and compaction evaluation
+
+prompts:
+  - |
+    You are a deterministic policy classifier for Factory AI.
+    Follow the suite policy exactly.
+
+    Policy:
+    {{instruction}}
+
+    Case:
+    {{input}}
+
+    Return only the requested lowercase label. Do not explain your answer.
+
+providers:
+  - id: openai:chat:factory-eval
+    config:
+      temperature: 0
+
+defaultTest:
+  options:
+    transform: output.trim().toLowerCase()
+
+tests:
+  - file://datasets/routing.jsonl
+  - file://datasets/tool-policy.jsonl
+  - file://datasets/compaction.jsonl

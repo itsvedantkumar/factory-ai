@@ -23,6 +23,9 @@ usage() {
     'Factory AI operator console' \
     'Usage: factory <command>' \
     '  setup' \
+    '  configure models' \
+    '  models show | set ROLE PROVIDER/MODEL | reset ROLE' \
+    '  acp REQUEST.json | extension verify MANIFEST ARTIFACT PUBLIC_KEY' \
     '  github status | connect ORG | transfer OWNER/REPO ORG' \
     '  telegram status | configure | start | stop' \
     '  submit <owner/repo> <objective>' \
@@ -36,7 +39,97 @@ usage() {
 
 command=${1:-ui}
 shift || true
+
+apply_runtime_model() {
+  local variable=$1 value=${2:-} mode=${3:-set} script settings
+  script="set -euo pipefail; exec 9>/run/lock/factory-ai-config.lock; flock -x 9; first=/etc/agent-factory.env; second=/etc/agent-factory-control.env; backup_first=\$(mktemp); backup_second=\$(mktemp); cp --preserve=mode,ownership \"\$first\" \"\$backup_first\"; cp --preserve=mode,ownership \"\$second\" \"\$backup_second\"; rollback() { install -m 0600 -o root -g root \"\$backup_first\" \"\$first\"; install -m 0600 -o root -g root \"\$backup_second\" \"\$second\"; systemctl restart agent-factory-control agent-factory-worker agent-factory-release || true; rm -f \"\$backup_first\" \"\$backup_second\"; }; trap rollback ERR TERM INT; for file in \"\$first\" \"\$second\"; do tmp=\$(mktemp); grep -v '^${variable}=' \"\$file\" > \"\$tmp\" || true; if [[ '$mode' == set ]]; then printf '${variable}=%s\\n' '$value' >> \"\$tmp\"; fi; install -m 0600 -o root -g root \"\$tmp\" \"\$file\"; rm -f \"\$tmp\"; done; systemctl restart agent-factory-control agent-factory-worker agent-factory-release; systemctl is-active --quiet agent-factory-control agent-factory-worker agent-factory-release; trap - ERR TERM INT; rm -f \"\$backup_first\" \"\$backup_second\""
+  printf -v script 'bash -c %q' "$script"
+  settings=$(jq -n --arg command "$script" '{commandToExecute:$command}')
+  az vm extension set --resource-group "$RESOURCE_GROUP" --vm-name "$VM" --name FactoryAIConfigure \
+    --publisher Microsoft.Azure.Extensions --version 2.1 --force-update --protected-settings "$settings" --output none
+}
+
+update_local_model() {
+  local variable=$1 value=${2:-} mode=${3:-set} temporary
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  temporary=$(mktemp "${CONFIG_FILE}.XXXXXX")
+  if [[ -f $CONFIG_FILE ]]; then grep -v "^${variable}=" "$CONFIG_FILE" > "$temporary" || true
+  elif [[ -f $LEGACY_CONFIG_FILE ]]; then grep -v "^${variable}=" "$LEGACY_CONFIG_FILE" > "$temporary" || true; fi
+  if [[ $mode == set ]]; then printf '%s=%q\n' "$variable" "$value" >> "$temporary"; fi
+  chmod 0600 "$temporary"
+  mv "$temporary" "$CONFIG_FILE"
+}
+
+configure_model_transaction() {
+  local variable=$1 value=${2:-} mode=${3:-set}
+  MODEL_CONFIG_BACKUP=$(mktemp)
+  MODEL_CONFIG_EXISTED=false
+  if [[ -f $CONFIG_FILE ]]; then cp "$CONFIG_FILE" "$MODEL_CONFIG_BACKUP"; MODEL_CONFIG_EXISTED=true; fi
+  rollback_local_model() {
+    if [[ $MODEL_CONFIG_EXISTED == true ]]; then mv "$MODEL_CONFIG_BACKUP" "$CONFIG_FILE"; else rm -f "$CONFIG_FILE" "$MODEL_CONFIG_BACKUP"; fi
+  }
+  trap rollback_local_model EXIT INT TERM
+  update_local_model "$variable" "$value" "$mode"
+  apply_runtime_model "$variable" "$value" "$mode"
+  rm -f "$MODEL_CONFIG_BACKUP"
+  trap - EXIT INT TERM
+}
+
 case "$command" in
+  acp)
+    request=${1:?ACP request JSON file required}
+    SERVICE_BUS_NAMESPACE="$NAMESPACE" CONTROL_QUEUE=control-events FACTORY_ACP_ENABLED=true exec node "$FACTORY_ROOT/src/acp-cli.js" "$request"
+    ;;
+  extension)
+    [[ ${1:-} == verify ]] || { printf 'Usage: factory extension verify MANIFEST ARTIFACT PUBLIC_KEY\n' >&2; exit 2; }
+    exec node "$FACTORY_ROOT/src/extension-cli.js" "${2:?manifest required}" "${3:?artifact required}" "${4:?public key required}"
+    ;;
+  configure)
+    area=${1:-models}
+    [[ $area == models ]] || { printf 'Supported configuration area: models\n' >&2; exit 2; }
+    "$0" models show
+    read -r -p 'Role to change (or Enter to leave unchanged): ' role
+    [[ -n $role ]] || exit 0
+    read -r -p 'New provider/model route (or "default"): ' route
+    if [[ $route == default ]]; then exec "$0" models reset "$role"; fi
+    exec "$0" models set "$role" "$route"
+    ;;
+  models)
+    action=${1:-show}
+    role=${2:-}
+    route=${3:-}
+    case "$action" in
+      show)
+        for current in scout planner builder tester debugger reviewer security release; do
+          upper=$(printf '%s' "$current" | tr '[:lower:]' '[:upper:]')
+          variable="FACTORY_MODEL_${upper}"
+          case "$current" in
+            scout) default=azureai-textved/factory-gpt-5-4-nano ;;
+            tester) default=azureai-responses/gpt-5.4 ;;
+            builder) default=azureai-textved/gpt-5.5 ;;
+            *) default=azureai-textved/gpt-5.6-sol ;;
+          esac
+          printf '%-10s %s%s\n' "$current" "${!variable:-$default}" "$([[ -n ${!variable:-} ]] && printf ' (override)' || true)"
+        done
+        ;;
+      set)
+        [[ $role =~ ^(scout|planner|builder|tester|debugger|reviewer|security|release)$ ]] || { printf 'Invalid model role\n' >&2; exit 2; }
+        node --input-type=module -e "import { validateModelRoute } from 'file://$FACTORY_ROOT/src/routing.js'; validateModelRoute(process.argv[1])" "$route"
+        upper=$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')
+        variable="FACTORY_MODEL_${upper}"
+        configure_model_transaction "$variable" "$route" set
+        printf '%s now routes to %s. Runtime services are healthy.\n' "$role" "$route"
+        ;;
+      reset)
+        [[ $role =~ ^(scout|planner|builder|tester|debugger|reviewer|security|release)$ ]] || { printf 'Invalid model role\n' >&2; exit 2; }
+        upper=$(printf '%s' "$role" | tr '[:lower:]' '[:upper:]')
+        variable="FACTORY_MODEL_${upper}"
+        configure_model_transaction "$variable" "" reset
+        printf '%s restored to the versioned default. Runtime services are healthy.\n' "$role"
+        ;;
+      *) printf 'Usage: factory models show | set ROLE PROVIDER/MODEL | reset ROLE\n' >&2; exit 2 ;;
+    esac
+    ;;
   telegram)
     action=${1:-status}
     case "$action" in
@@ -80,6 +173,29 @@ case "$command" in
       "$0" setup
       exec "$0" ui
     fi
+    version=$(node -p "require('$FACTORY_ROOT/package.json').version")
+    os=$(uname -s | tr '[:upper:]' '[:lower:]')
+    arch=$(uname -m)
+    [[ $arch == x86_64 ]] && arch=amd64
+    [[ $arch == aarch64 ]] && arch=arm64
+    cache="$HOME/.cache/factory-ai/$version"
+    binary="$cache/factory-ui-$os-$arch"
+    if [[ ! -x $binary ]]; then
+      mkdir -p "$cache"
+      base="https://github.com/itsvedantkumar/factory-ai/releases/download/v$version"
+      if curl -fsSL "$base/factory-ui-$os-$arch" -o "$binary.tmp" && curl -fsSL "$base/checksums.txt" -o "$cache/checksums.txt"; then
+        expected=""
+        while read -r checksum asset; do [[ $asset == "factory-ui-$os-$arch" ]] && expected=$checksum; done < "$cache/checksums.txt"
+        actual=""
+        if command -v shasum >/dev/null; then actual=$(shasum -a 256 "$binary.tmp"); actual=${actual%% *};
+        elif command -v sha256sum >/dev/null; then actual=$(sha256sum "$binary.tmp"); actual=${actual%% *}; fi
+        if [[ -n $expected && $actual == "$expected" ]] && gh attestation verify "$binary.tmp" --repo itsvedantkumar/factory-ai >/dev/null 2>&1; then mv "$binary.tmp" "$binary"; chmod 0755 "$binary"; else rm -f "$binary.tmp"; fi
+      fi
+    fi
+    if [[ -x $binary ]]; then
+      FACTORY_STORAGE_ACCOUNT="$STORAGE" FACTORY_NAME="$FACTORY_NAME" FACTORY_PURPOSE="$FACTORY_PURPOSE" exec "$binary"
+    fi
+    printf 'Charm client unavailable for this release; using Node fallback.\n' >&2
     FACTORY_RESOURCE_GROUP="$RESOURCE_GROUP" FACTORY_VM="$VM" FACTORY_SERVICE_BUS="$NAMESPACE" FACTORY_KEY_VAULT="$VAULT" FACTORY_STORAGE_ACCOUNT="$STORAGE" FACTORY_NAME="$FACTORY_NAME" FACTORY_PURPOSE="$FACTORY_PURPOSE" node "$FACTORY_ROOT/src/tui.js"
     ;;
   setup)
@@ -164,7 +280,7 @@ case "$command" in
     printf 'Azure foundation and credential vault ready. Config: %s\n' "$CONFIG_FILE"
     if [[ $deploy_now == true ]]; then
       source_ref=$(gh api repos/itsvedantkumar/factory-ai/commits/main --jq .sha)
-      parameters=(KEY_VAULT_NAME "$vault" SERVICE_BUS_NAMESPACE "$namespace" SERVICE_BUS_QUEUE code-tasks FACTORY_STORAGE_ACCOUNT "$storage" FACTORY_NAME "$factory_name" FACTORY_PURPOSE "$factory_purpose" SOURCE_REPOSITORY itsvedantkumar/factory-ai SOURCE_REF "$source_ref")
+      parameters=(KEY_VAULT_NAME "$vault" SERVICE_BUS_NAMESPACE "$namespace" FACTORY_STORAGE_ACCOUNT "$storage" FACTORY_NAME "$factory_name" FACTORY_PURPOSE "$factory_purpose" SOURCE_REPOSITORY itsvedantkumar/factory-ai SOURCE_REF "$source_ref")
       if [[ $provider == bedrock ]]; then
         parameters+=(AWS_REGION "$aws_region")
         for role in SCOUT PLANNER BUILDER TESTER DEBUGGER REVIEWER SECURITY RELEASE; do parameters+=("FACTORY_MODEL_$role" "bedrock/$bedrock_builder"); done
@@ -243,6 +359,7 @@ case "$command" in
     [[ -d $target ]] || { printf 'Project directory does not exist: %s\n' "$target" >&2; exit 2; }
     context="$target/.agent-factory"
     mkdir -p "$context"
+    [[ -e $target/AGENTS.md ]] || cp "$FACTORY_ROOT/templates/AGENTS.md" "$target/AGENTS.md"
     for template in "$FACTORY_ROOT/templates/project/"*.md; do
       destination="$context/$(basename "$template")"
       [[ -e $destination ]] || cp "$template" "$destination"

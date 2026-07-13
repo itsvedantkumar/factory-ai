@@ -1,0 +1,32 @@
+name: evaluations
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evaluations-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Validate JSONL contract
+        run: python3 evals/inspect/factory_eval.py --validate
+      - name: Compile Inspect adapter
+        run: python3 -m py_compile evals/inspect/factory_eval.py
+      - name: Validate Promptfoo configuration
+        env:
+          PROMPTFOO_DISABLE_TELEMETRY: "true"
+        run: npx --yes promptfoo@0.121.18 validate --config evals/promptfoo.yaml
+      - name: Validate Compose configuration
+        run: docker compose -f evals/inspect/compose.yml config --quiet

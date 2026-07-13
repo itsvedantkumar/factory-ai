@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { modelForRole, modelForTask } from "../src/routing.js";
+import { modelForRole, modelForTask, validateModelRoute } from "../src/routing.js";
 
 test("routes scouting to benchmarked GPT-5.4 nano", () => {
   assert.equal(modelForRole("scout"), "azureai-textved/factory-gpt-5-4-nano");
@@ -28,4 +28,11 @@ test("routes engineering judgment roles to GPT-5.6", () => {
 
 test("rejects unknown roles", () => {
   assert.throws(() => modelForRole("administrator"), /Unknown role/);
+});
+
+test("validates future model routes without hard-coding model names", () => {
+  assert.equal(validateModelRoute("azureai-textved/gpt-6.1"), "azureai-textved/gpt-6.1");
+  assert.equal(validateModelRoute("bedrock/global.anthropic.claude-next-v1:0"), "bedrock/global.anthropic.claude-next-v1:0");
+  assert.throws(() => validateModelRoute("https://evil.test/model"), /Unsupported model provider/);
+  assert.throws(() => validateModelRoute("azureai-textved/model name"), /Invalid model route/);
 });

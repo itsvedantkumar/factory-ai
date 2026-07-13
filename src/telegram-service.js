@@ -10,6 +10,7 @@ import { sendMessage } from "./bus.js";
 import { loadLocalState, loadQueueMetrics } from "./dashboard.js";
 import { formatObjectiveProgress, isAllowedChat, objectiveFromTelegram, parseTelegramCommand } from "./telegram.js";
 import { log } from "./log.js";
+import { ActivityStore } from "./activity.js";
 
 process.title = "factory-ai-telegram";
 const config = loadConfig();
@@ -37,6 +38,7 @@ const subscriptions = await loadJson(subscriptionsFile);
 const client = new ServiceBusClient(config.serviceBusFqdn, new DefaultAzureCredential());
 const sender = client.createSender(config.controlQueue);
 const abort = new AbortController();
+const activityStore = new ActivityStore(config.stateDir);
 
 async function telegram(method, body) {
   const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
@@ -93,6 +95,7 @@ async function processUpdate(update) {
     }
     if (command.type === "objective") {
       const state = JSON.parse(await readFile(path.join(config.stateDir, command.objectiveId, "state.json"), "utf8"));
+      state.activity = await activityStore.latestObjective(command.objectiveId);
       return reply(message.chat.id, formatObjectiveProgress(state, config.factoryName));
     }
     const objective = objectiveFromTelegram(update.update_id, command);
@@ -107,14 +110,17 @@ async function processUpdate(update) {
 
 async function notifyProgress() {
   let changed = false;
+  const terminal = new Set(["complete", "failed", "blocked", "denied", "expired", "cancelled"]);
   for (const [objectiveId, subscription] of Object.entries(subscriptions)) {
     let state;
     try { state = JSON.parse(await readFile(path.join(config.stateDir, objectiveId, "state.json"), "utf8")); }
     catch (error) { if (error.code === "ENOENT") continue; throw error; }
+    state.activity = await activityStore.latestObjective(objectiveId);
     const text = formatObjectiveProgress(state, config.factoryName);
     const digest = createHash("sha256").update(text).digest("hex");
+    if (digest !== subscription.lastDigest) await reply(subscription.chatId, text);
+    if (terminal.has(state.status)) { delete subscriptions[objectiveId]; changed = true; continue; }
     if (digest === subscription.lastDigest) continue;
-    await reply(subscription.chatId, text);
     subscription.lastDigest = digest;
     subscription.lastStatus = state.status;
     subscription.notifiedAt = new Date().toISOString();

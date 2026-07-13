@@ -5,6 +5,7 @@ import { run } from "./process.js";
 
 const ALLOWED_COMMANDS = new Set(["git", "ls", "node", "npm", "npx", "pwd", "rg"]);
 const DENIED_GIT_OPERATIONS = new Set(["credential", "push", "remote"]);
+const READ_ONLY_GIT_OPERATIONS = new Set(["diff", "grep", "log", "ls-files", "rev-parse", "show", "status"]);
 
 function lexicalPath(root, requested) {
   const target = path.resolve(root, requested);
@@ -43,10 +44,11 @@ async function walk(directory, root, output, limit) {
   }
 }
 
-export function createWorkspaceTools(rootInput, { execute = run } = {}) {
+export function createWorkspaceTools(rootInput, { execute = run, mutable = true, allowTests = false } = {}) {
   const root = realpathSync(path.resolve(rootInput));
-  return {
+  const tools = {
     read_file: {
+      parallelSafe: true,
       description: "Read a bounded UTF-8 line range inside the assigned workspace. Use offsetLine/limitLines instead of rereading large files.",
       parameters: {
         type: "object",
@@ -69,6 +71,7 @@ export function createWorkspaceTools(rootInput, { execute = run } = {}) {
       },
     },
     write_file: {
+      parallelSafe: false,
       description: "Atomically replace a UTF-8 file inside the assigned workspace.",
       parameters: {
         type: "object",
@@ -86,6 +89,7 @@ export function createWorkspaceTools(rootInput, { execute = run } = {}) {
       },
     },
     list_files: {
+      parallelSafe: true,
       description: "List files recursively inside the assigned workspace.",
       parameters: {
         type: "object",
@@ -101,6 +105,7 @@ export function createWorkspaceTools(rootInput, { execute = run } = {}) {
       },
     },
     run_command: {
+      parallelSafe: false,
       description: "Run an allowlisted noninteractive development command in the assigned workspace.",
       parameters: {
         type: "object",
@@ -113,7 +118,10 @@ export function createWorkspaceTools(rootInput, { execute = run } = {}) {
       },
       execute: async ({ command, args }) => {
         if (!ALLOWED_COMMANDS.has(command)) throw new Error(`Command not allowed: ${command}`);
-        if (command === "git" && DENIED_GIT_OPERATIONS.has(args[0])) throw new Error(`Git operation not allowed: ${args[0]}`);
+        const testCommand = allowTests && ((command === "npm" && ["test", "run"].includes(args[0])) || (command === "node" && args[0] === "--test") || (command === "npx" && args[0] === "--no-install"));
+        if (!mutable && !testCommand && !["git", "ls", "pwd", "rg"].includes(command)) throw new Error(`Command not allowed for read-only role: ${command}`);
+        if (command === "git" && (args.some((item) => DENIED_GIT_OPERATIONS.has(item)) || args.some((item) => ["-c", "--config-env", "--exec-path"].includes(item)))) throw new Error("Git operation not allowed");
+        if (!mutable && command === "git" && (args[0]?.startsWith("-") || !READ_ONLY_GIT_OPERATIONS.has(args[0]))) throw new Error(`Git operation not allowed for read-only role: ${args[0]}`);
         if (command === "npx" && args[0] !== "--no-install") throw new Error("npx requires --no-install");
         const result = await execute(command, args, {
           cwd: root,
@@ -127,4 +135,6 @@ export function createWorkspaceTools(rootInput, { execute = run } = {}) {
       },
     },
   };
+  if (!mutable) delete tools.write_file;
+  return tools;
 }

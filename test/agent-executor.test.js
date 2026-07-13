@@ -48,7 +48,7 @@ test("injects trusted scanner evidence into security tasks", async () => {
   const executor = new AgentExecutor({
     workspaces: {
       prepareTask: async () => "/workspace/security",
-      checkpoint: async () => ({ commit: "0123456789abcdef0123456789abcdef01234567", branch: "factory-ai/o/security" }),
+      reference: async () => ({ commit: "0123456789abcdef0123456789abcdef01234567", branch: "factory-ai/o/security" }),
     },
     scannerSuite: { scan: async () => [{ scanner: "gitleaks", status: "passed", output: "no leaks" }] },
     agentRunner: { invoke: async (packet) => { prompt = packet.prompt; return { summary: "safe", checks: [], risks: [], approval: "approved" }; } },
@@ -63,4 +63,113 @@ test("injects trusted scanner evidence into security tasks", async () => {
   });
   assert.match(prompt, /TRUSTED SCANNER EVIDENCE/);
   assert.match(prompt, /gitleaks/);
+});
+
+test("blocks authoring checkpoints when the pre-push secret scan fails", async () => {
+  let checkpointed = false;
+  const executor = new AgentExecutor({
+    workspaces: {
+      prepareTask: async () => "/workspace/build",
+      checkpoint: async () => { checkpointed = true; return {}; },
+    },
+    scannerSuite: { scan: async () => [{ scanner: "gitleaks", status: "findings", output: "redacted" }] },
+    agentRunner: { invoke: async () => ({ summary: "built", checks: [], risks: [], approval: "not_applicable" }) },
+    sendControl: async () => {},
+  });
+  await assert.rejects(() => executor.process({
+    type: "agent_task",
+    objectiveId: "objective1",
+    objective: { id: "objective1", objective: "Build", repository: "https://github.com/acme/app.git", baseBranch: "main" },
+    task: { id: "build", role: "builder", title: "Build", instructions: "Build it", dependsOn: [], capabilities: [] },
+  }), /secret scan/);
+  assert.equal(checkpointed, false);
+});
+
+test("injects a recovered durable worktree checkpoint on redelivery", async () => {
+  let prompt;
+  const executor = new AgentExecutor({
+    workspaces: {
+      prepareTask: async () => "/workspace/build",
+      recoveryContext: async () => "RECOVERED DURABLE WORKTREE CHECKPOINT\n M src/app.js",
+      checkpoint: async () => ({ commit: "0123456789abcdef0123456789abcdef01234567", branch: "factory-ai/o/build" }),
+    },
+    agentRunner: { invoke: async (packet) => { prompt = packet.prompt; return { summary: "built", checks: [], risks: [], approval: "not_applicable" }; } },
+    sendControl: async () => {},
+  });
+  await executor.process({
+    type: "agent_task",
+    objectiveId: "objective1",
+    objective: { id: "objective1", objective: "Build", repository: "https://github.com/acme/app.git", baseBranch: "main" },
+    task: { id: "build", role: "builder", title: "Build", instructions: "Build it", dependsOn: [], capabilities: [] },
+  });
+  assert.match(prompt, /RECOVERED DURABLE WORKTREE CHECKPOINT/);
+  assert.match(prompt, /src\/app\.js/);
+});
+
+test("configured scanner hooks fail closed before checkpoint", async () => {
+  let checkpointed = false;
+  const executor = new AgentExecutor({
+    workspaces: { prepareTask: async () => "/workspace", checkpoint: async () => { checkpointed = true; return {}; } },
+    agentRunner: { invoke: async () => ({ summary: "done", checks: [], risks: [], approval: "not_applicable" }) },
+    hooks: [{ point: "before_checkpoint", action: "scanner", input: { scanners: ["gitleaks"] } }],
+    hookHandlers: { scanner: async () => [{ scanner: "gitleaks", status: "findings", output: "redacted" }] },
+    sendControl: async () => {},
+  });
+  await assert.rejects(() => executor.process({ type: "agent_task", objectiveId: "o", objective: { id: "o", objective: "Build", repository: "https://github.com/a/b.git", baseBranch: "main" }, task: { id: "build", role: "builder", title: "Build", instructions: "Build safely", dependsOn: [], capabilities: [] } }), /scanner hook/);
+  assert.equal(checkpointed, false);
+});
+
+test("approved policy replay proceeds to checkpoint without a second request", async () => {
+  let checkpointed = false;
+  const executor = new AgentExecutor({
+    workspaces: { prepareTask: async () => "/workspace", checkpoint: async () => { checkpointed = true; return { commit: "0123456789abcdef0123456789abcdef01234567", branch: "factory-ai/o/build" }; } },
+    agentRunner: { invoke: async () => ({ summary: "done", checks: [], risks: [], approval: "not_applicable" }) },
+    hooks: [{ point: "before_checkpoint", action: "policy_check", input: { policies: ["new_dependencies"] } }],
+    hookHandlers: { policy_check: async () => ({ required: true, policies: ["new_dependencies"], skipped: true }) },
+    sendControl: async () => {},
+  });
+  await executor.process({ type: "agent_task", objectiveId: "o", approvalGranted: true, objective: { id: "o", objective: "Build", repository: "https://github.com/a/b.git", baseBranch: "main" }, task: { id: "build", role: "builder", title: "Build", instructions: "Add dependency", dependsOn: [], capabilities: [] } });
+  assert.equal(checkpointed, true);
+});
+
+test("injects a repository map before semantic snippets for worker tasks", async () => {
+  let prompt;
+  const executor = new AgentExecutor({
+    workspaces: {
+      prepareTask: async () => "/workspace/build",
+      checkpoint: async () => ({ commit: "0123456789abcdef0123456789abcdef01234567", branch: "factory-ai/o/build" }),
+    },
+    buildRepoMap: async () => ({ text: "REPOSITORY MAP\nsrc/auth.js:4", entries: [{ path: "src/auth.js", startLine: 4, endLine: 4 }] }),
+    repoMapMaxCharacters: 4321,
+    retriever: { context: async (_directory, _repository, _query, options) => {
+      assert.deepEqual(options.repositoryEntries, [{ path: "src/auth.js", startLine: 4, endLine: 4 }]);
+      return "src/session.js:2";
+    } },
+    agentRunner: { invoke: async (packet) => { prompt = packet.prompt; return { summary: "built", checks: [], risks: [], approval: "not_applicable" }; } },
+    sendControl: async () => {},
+  });
+  await executor.process({
+    type: "agent_task",
+    objectiveId: "objective1",
+    objective: { id: "objective1", objective: "Fix auth", repository: "https://github.com/acme/app.git", baseBranch: "main" },
+    task: { id: "build", role: "builder", title: "Build", instructions: "Build it", dependsOn: [], capabilities: [] },
+  });
+  assert.ok(prompt.indexOf("REPOSITORY MAP") < prompt.indexOf("LOCAL SEMANTIC CONTEXT"));
+});
+
+test("injects a repository map before semantic snippets for planning", async () => {
+  let context;
+  const executor = new AgentExecutor({
+    workspaces: { ensureObjective: async () => "/workspace/control" },
+    buildRepoMap: async () => ({ text: "REPOSITORY MAP\nsrc/auth.js:4", entries: [] }),
+    retriever: { context: async () => "src/session.js:2" },
+    agentRunner: { plan: async (_objective, _directory, value) => { context = value; return { executiveIntent: "ship", tasks: [] }; } },
+    sendControl: async () => {},
+  });
+  await executor.process({
+    type: "planning_task",
+    objectiveId: "objective1",
+    objective: { id: "objective1", objective: "Fix auth", repository: "https://github.com/acme/app.git", baseBranch: "main" },
+  });
+  assert.deepEqual(context.map((item) => item.type), ["repository-map", "local-semantic-retrieval"]);
 });

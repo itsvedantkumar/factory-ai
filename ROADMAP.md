@@ -4,7 +4,6 @@
 
 - Evaluation Lab with model promotion and rollback evidence.
 - Enhanced TUI timeline, diffs, files, checks, and safe takeover leases.
-- Telegram remote objective status and completion notifications.
 - Multi-repository objective schema and release groups.
 
 ## Platform

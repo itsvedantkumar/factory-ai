@@ -1,7 +1,6 @@
 name: release
 
 on:
-  workflow_dispatch:
   release:
     types: [published]
 
@@ -10,18 +9,64 @@ permissions:
   id-token: write
 
 jobs:
+  binaries:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+      - name: Build cross-platform Charm clients
+        run: |
+          go test ./cmd/...
+          go vet ./cmd/...
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+            os=${target%/*}
+            arch=${target#*/}
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags='-s -w' -o "dist/factory-ui-${os}-${arch}" ./cmd/factory-ui
+          done
+          cd dist
+          sha256sum factory-ui-* > checksums.txt
+      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: dist/factory-ui-*
+      - name: Attach binaries to release
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   npm:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
       - run: npm ci
+      - name: Verify tag matches package
+        run: test "${{ github.event.release.tag_name }}" = "v$(node -p 'require("./package.json").version')"
       - run: npm run check
       - run: npm run lint
       - run: npm test
+      - run: npm audit --audit-level=high
+      - run: go test ./cmd/... && go vet ./cmd/...
+      - run: bash -n bootstrap/setup.sh bootstrap/deploy-runtime.sh bootstrap/auto-update.sh bin/factory
+      - run: az bicep build --file infra/main.bicep --stdout >/dev/null
+      - run: docker run --rm --read-only --volume "$PWD:/workspace:ro" zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f detect --source /workspace --redact --no-banner --exit-code 1
       - name: Publish npm package if version is new
         run: |
           package_name=$(node -p 'require("./package.json").name')
