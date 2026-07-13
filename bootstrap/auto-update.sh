@@ -24,8 +24,9 @@ tag_commit=$(GH_TOKEN="$github_token" gh api "repos/itsvedantkumar/factory-ai/co
 [[ $tag_commit == "$commit" ]] || { printf 'npm gitHead does not match the immutable release tag.\n' >&2; exit 1; }
 release_ok=$(GH_TOKEN="$github_token" gh release view "v$version" --repo itsvedantkumar/factory-ai --json isDraft,isPrerelease --jq '(.isDraft == false) and (.isPrerelease == false)')
 [[ $release_ok == true ]] || { printf 'Matching stable GitHub release is unavailable.\n' >&2; exit 1; }
-provenance=$(npm view "factory-ai@$version" dist.attestations.provenance.url 2>/dev/null || true)
-[[ $provenance == https://search.sigstore.dev/* ]] || { printf 'npm release lacks verifiable provenance metadata.\n' >&2; exit 1; }
+attestation_url=$(npm view "factory-ai@$version" dist.attestations.url 2>/dev/null || true)
+predicate_type=$(npm view "factory-ai@$version" dist.attestations.provenance.predicateType 2>/dev/null || true)
+[[ $attestation_url == https://registry.npmjs.org/-/npm/v1/attestations/* && $predicate_type == https://slsa.dev/provenance/v1 ]] || { printf 'npm release lacks verifiable provenance metadata.\n' >&2; exit 1; }
 checks=$(GH_TOKEN="$github_token" gh api "repos/itsvedantkumar/factory-ai/commits/$commit/check-runs" --jq '[.check_runs[] | select(.name == "verify") | .conclusion] | any(. == "success")')
 [[ $checks == true ]] || { printf 'Candidate commit lacks successful CI verification.\n' >&2; exit 1; }
 

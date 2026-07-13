@@ -4,6 +4,12 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-07-13
+
+### Fixed
+
+- Validate npm's actual attestation URL and SLSA predicate metadata fields during verified automatic updates.
+
 ## [1.5.2] - 2026-07-13
 
 ### Fixed
