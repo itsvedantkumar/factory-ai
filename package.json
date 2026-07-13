@@ -53,12 +53,13 @@
     "go.mod",
     "go.sum",
     "src/",
+    "scripts/",
     "templates/",
     "*.md",
     "Dockerfile.worker"
   ],
   "scripts": {
-    "test": "node --test",
+    "test": "node scripts/test.js",
     "lint": "eslint .",
     "check": "node --check src/*.js"
   },
