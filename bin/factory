@@ -31,6 +31,7 @@ usage() {
     '  workspace list | import PATH|OWNER/REPO [--name NAME] | show NAME | remove NAME' \
     '  submit <workspace|owner/repo> <objective>' \
     '  update check | now | status | enable | disable' \
+    '  approval approve | deny OBJECTIVE_ID APPROVAL_ID REASON' \
     '  issue <owner/repo> <number>' \
     '  ui' \
     '  init <local-project-path>' \
@@ -113,6 +114,9 @@ case "$command" in
         ;;
       *) printf 'Usage: factory update check | now | status | enable | disable\n' >&2; exit 2 ;;
     esac
+    ;;
+  approval)
+    SERVICE_BUS_NAMESPACE="$NAMESPACE" CONTROL_QUEUE=control-events exec node "$FACTORY_ROOT/src/approval-cli.js" "$@"
     ;;
   acp)
     request=${1:?ACP request JSON file required}
@@ -236,8 +240,8 @@ case "$command" in
     if [[ -x $binary ]]; then
       FACTORY_STORAGE_ACCOUNT="$STORAGE" FACTORY_NAME="$FACTORY_NAME" FACTORY_PURPOSE="$FACTORY_PURPOSE" exec "$binary"
     fi
-    printf 'Charm client unavailable for this release; using Node fallback.\n' >&2
-    FACTORY_RESOURCE_GROUP="$RESOURCE_GROUP" FACTORY_VM="$VM" FACTORY_SERVICE_BUS="$NAMESPACE" FACTORY_KEY_VAULT="$VAULT" FACTORY_STORAGE_ACCOUNT="$STORAGE" FACTORY_NAME="$FACTORY_NAME" FACTORY_PURPOSE="$FACTORY_PURPOSE" node "$FACTORY_ROOT/src/tui.js"
+    printf 'Verified Factory TUI binary is unavailable for %s/%s. Check GitHub release assets and `gh auth status`.\n' "$os" "$arch" >&2
+    exit 1
     ;;
   setup)
     for dependency in az gh jq curl ssh-keygen node; do command -v "$dependency" >/dev/null || { printf 'Missing dependency: %s\n' "$dependency" >&2; exit 1; }; done

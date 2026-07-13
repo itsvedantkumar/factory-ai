@@ -4,6 +4,13 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-07-13
+
+### Changed
+
+- Replaced the JavaScript fallback TUI with one native Go operator console featuring an OpenCode-style command bar, command history, inline output/errors, and shortcuts for submissions, workspace imports, secrets, approvals, pause/resume, and help.
+- Removed the `factory-ui` JavaScript binary and `neo-blessed` dependency; `factory ui` now fails closed if its verified attested native binary is unavailable.
+
 ## [1.6.1] - 2026-07-13
 
 ### Added
@@ -14,7 +21,7 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ### Added
 
-- Persistent Conductor-style workspace catalog with local/GitHub imports, managed clones, stable names, default branches, project initialization, CLI commands, direct Service Bus submission, and workspace views in both TUIs.
+- Persistent Conductor-style workspace catalog with local/GitHub imports, managed clones, stable names, default branches, project initialization, CLI commands, direct Service Bus submission, and a native workspace view.
 
 ## [1.5.3] - 2026-07-13
 
@@ -38,7 +45,7 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ### Added
 
-- Cross-platform Bubble Tea/Lip Gloss operator client with direct Azure Blob snapshots, verified release binaries, scrolling, and safe Node action fallback.
+- Cross-platform Bubble Tea/Lip Gloss operator client with direct Azure Blob snapshots, verified release binaries, scrolling, and native command execution.
 - Automatic Azure and Bedrock context compaction with immutable objective retention and recent tool evidence.
 - Hierarchical `AGENTS.md` discovery, preconfigured project instructions, and bounded `.agent-factory` context.
 - Durable worktree crash recovery, parallel read-only tool batches, live activity timelines, retry/error telemetry, and stale-agent watchdog recovery.

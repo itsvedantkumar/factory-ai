@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -48,6 +50,12 @@ type objective struct {
 	Tasks       []task `json:"tasks"`
 	PullRequest string `json:"pullRequest"`
 	Blocker     string `json:"blocker"`
+	Approval    *struct {
+		ApprovalID string `json:"approvalId"`
+		Status     string `json:"status"`
+		Policy     string `json:"policy"`
+		Reason     string `json:"reason"`
+	} `json:"approval"`
 }
 
 type workspace struct {
@@ -96,22 +104,30 @@ type snapshotMsg struct {
 	err          error
 }
 type tickMsg time.Time
-type resumeMsg struct{ err error }
+type commandResultMsg struct {
+	command, output string
+	err             error
+}
 
 type model struct {
-	client       *azblob.Client
-	factoryName  string
-	purpose      string
-	width        int
-	height       int
-	tab          int
-	scroll       int
-	dashboard    dashboard
-	logs         string
-	workspaces   []workspace
-	workspaceErr string
-	loading      bool
-	err          error
+	client         *azblob.Client
+	factoryName    string
+	purpose        string
+	width          int
+	height         int
+	tab            int
+	scroll         int
+	dashboard      dashboard
+	logs           string
+	workspaces     []workspace
+	workspaceErr   string
+	loading        bool
+	err            error
+	commandMode    bool
+	commandInput   string
+	commandOutput  string
+	commandHistory []string
+	historyIndex   int
 }
 
 var (
@@ -126,6 +142,22 @@ var (
 	ansi   = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)`)
 )
 
+type synchronizedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (value *synchronizedBuffer) Write(data []byte) (int, error) {
+	value.mu.Lock()
+	defer value.mu.Unlock()
+	return value.buffer.Write(data)
+}
+func (value *synchronizedBuffer) String() string {
+	value.mu.Lock()
+	defer value.mu.Unlock()
+	return value.buffer.String()
+}
+
 func clean(value string) string {
 	value = ansi.ReplaceAllString(value, "")
 	return strings.Map(func(character rune) rune {
@@ -134,6 +166,96 @@ func clean(value string) string {
 		}
 		return -1
 	}, value)
+}
+
+func parseCommandLine(value string) ([]string, error) {
+	var args []string
+	var current strings.Builder
+	var quote rune
+	escaped := false
+	flush := func() {
+		if current.Len() > 0 {
+			args = append(args, current.String())
+			current.Reset()
+		}
+	}
+	for _, character := range strings.TrimSpace(value) {
+		if escaped {
+			current.WriteRune(character)
+			escaped = false
+			continue
+		}
+		if character == '\\' && quote != '\'' {
+			escaped = true
+			continue
+		}
+		if quote != 0 {
+			if character == quote {
+				quote = 0
+			} else {
+				current.WriteRune(character)
+			}
+			continue
+		}
+		if character == '\'' || character == '"' {
+			quote = character
+			continue
+		}
+		if character == ' ' || character == '\t' {
+			flush()
+			continue
+		}
+		current.WriteRune(character)
+	}
+	if escaped || quote != 0 {
+		return nil, fmt.Errorf("unterminated quote or escape")
+	}
+	flush()
+	if len(args) > 0 && args[0] == "factory" {
+		args = args[1:]
+	}
+	return args, nil
+}
+
+func validateFactoryCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("enter a factory command")
+	}
+	allowed := map[string]bool{"setup": true, "configure": true, "models": true, "acp": true, "extension": true, "github": true, "telegram": true, "workspace": true, "submit": true, "issue": true, "init": true, "secret": true, "dashboard": true, "status": true, "queue": true, "report": true, "logs": true, "doctor": true, "pause": true, "resume": true, "update": true, "approval": true, "help": true, "--help": true, "-h": true}
+	if args[0] == "ui" {
+		return fmt.Errorf("the UI command cannot be launched inside itself")
+	}
+	if !allowed[args[0]] {
+		return fmt.Errorf("unknown factory command: %s", args[0])
+	}
+	return nil
+}
+
+func interactiveFactoryCommand(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	return args[0] == "setup" || args[0] == "configure" || args[0] == "secret" && len(args) > 1 && args[1] == "set" || args[0] == "telegram" && len(args) > 1 && args[1] == "configure"
+}
+
+func executeFactoryCommand(args []string) tea.Cmd {
+	return func() tea.Msg {
+		command := "factory " + strings.Join(args, " ")
+		output, err := exec.Command("factory", args...).CombinedOutput()
+		return commandResultMsg{command: command, output: string(output), err: err}
+	}
+}
+
+func interactiveFactoryProcess(args []string) tea.Cmd {
+	var transcript synchronizedBuffer
+	command := exec.Command("factory", args...)
+	command.Stdin = os.Stdin
+	command.Stdout = io.MultiWriter(os.Stdout, &transcript)
+	command.Stderr = io.MultiWriter(os.Stderr, &transcript)
+	label := "factory " + strings.Join(args, " ")
+	return tea.ExecProcess(command, func(err error) tea.Msg {
+		return commandResultMsg{command: label, output: transcript.String(), err: err}
+	})
 }
 
 func readConfig() map[string]string {
@@ -203,6 +325,57 @@ func (m model) Init() tea.Cmd { return tea.Batch(fetchCmd(m.client), tickCmd()) 
 func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.KeyMsg:
+		if m.commandMode {
+			switch msg.String() {
+			case "esc":
+				m.commandMode = false
+				m.commandInput = ""
+			case "enter":
+				line := strings.TrimSpace(m.commandInput)
+				args, err := parseCommandLine(line)
+				if err == nil {
+					err = validateFactoryCommand(args)
+				}
+				if err != nil {
+					m.commandOutput = err.Error()
+					return m, nil
+				}
+				m.commandMode = false
+				m.commandInput = ""
+				m.commandHistory = append(m.commandHistory, line)
+				m.historyIndex = len(m.commandHistory)
+				if interactiveFactoryCommand(args) {
+					return m, interactiveFactoryProcess(args)
+				}
+				m.loading = true
+				return m, executeFactoryCommand(args)
+			case "backspace", "ctrl+h":
+				runes := []rune(m.commandInput)
+				if len(runes) > 0 {
+					m.commandInput = string(runes[:len(runes)-1])
+				}
+			case "ctrl+u":
+				m.commandInput = ""
+			case "up":
+				if m.historyIndex > 0 {
+					m.historyIndex--
+					m.commandInput = m.commandHistory[m.historyIndex]
+				}
+			case "down":
+				if m.historyIndex < len(m.commandHistory)-1 {
+					m.historyIndex++
+					m.commandInput = m.commandHistory[m.historyIndex]
+				} else {
+					m.historyIndex = len(m.commandHistory)
+					m.commandInput = ""
+				}
+			default:
+				if len(msg.Runes) > 0 {
+					m.commandInput += string(msg.Runes)
+				}
+			}
+			return m, nil
+		}
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -233,8 +406,39 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.scroll += 10
 		case "home":
 			m.scroll = 0
-		case "o", "n", "i", "a", "p", "u", "y", "x":
-			return m, tea.ExecProcess(exec.Command("factory-ui"), func(err error) tea.Msg { return resumeMsg{err: err} })
+		case ":", "o":
+			m.commandMode = true
+			m.commandInput = ""
+			m.historyIndex = len(m.commandHistory)
+		case "n":
+			m.commandMode = true
+			m.commandInput = "submit "
+			m.historyIndex = len(m.commandHistory)
+		case "i":
+			m.commandMode = true
+			m.commandInput = "workspace import "
+			m.historyIndex = len(m.commandHistory)
+		case "a":
+			m.commandMode = true
+			m.commandInput = "secret set "
+			m.historyIndex = len(m.commandHistory)
+		case "y":
+			m.commandMode = true
+			m.commandInput = "approval approve "
+			m.historyIndex = len(m.commandHistory)
+		case "x":
+			m.commandMode = true
+			m.commandInput = "approval deny "
+			m.historyIndex = len(m.commandHistory)
+		case "p":
+			m.loading = true
+			return m, executeFactoryCommand([]string{"pause"})
+		case "u":
+			m.loading = true
+			return m, executeFactoryCommand([]string{"resume"})
+		case "?":
+			m.loading = true
+			return m, executeFactoryCommand([]string{"--help"})
 		case "r":
 			m.loading = true
 			return m, fetchCmd(m.client)
@@ -252,12 +456,16 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			m.dashboard, m.logs, m.workspaces, m.workspaceErr = msg.dashboard, msg.logs, msg.workspaces, msg.workspaceErr
 		}
-	case resumeMsg:
+	case commandResultMsg:
+		m.loading = false
 		m.err = msg.err
-		if msg.err == nil {
-			m.loading = true
-			return m, fetchCmd(m.client)
+		result := strings.TrimSpace(clean(msg.output))
+		if msg.err != nil && result == "" {
+			result = msg.err.Error()
 		}
+		m.commandOutput = fmt.Sprintf("$ %s\n%s", clean(msg.command), result)
+		m.scroll = int(^uint(0) >> 1)
+		return m, fetchCmd(m.client)
 	case tickMsg:
 		if !m.loading {
 			m.loading = true
@@ -336,6 +544,9 @@ func (m model) objectives() string {
 		if item.PullRequest != "" {
 			fmt.Fprintf(&value, "  PR %s\n", clean(item.PullRequest))
 		}
+		if item.Approval != nil {
+			fmt.Fprintf(&value, "  %s approval %s · %s\n  ID %s\n", badge(item.Approval.Status), clean(item.Approval.Policy), trim(item.Approval.Reason, 90), clean(item.Approval.ApprovalID))
+		}
 		value.WriteString("\n")
 	}
 	return value.String()
@@ -380,7 +591,7 @@ func (m model) workspaceList() string {
 		return "Workspace catalog unavailable: " + clean(m.workspaceErr)
 	}
 	if len(m.workspaces) == 0 {
-		return "No workspaces imported. Press o, then i, to import a local path or owner/repo."
+		return "No workspaces imported. Press i and enter a local path or owner/repo."
 	}
 	var value strings.Builder
 	value.WriteString("IMPORTED WORKSPACES\n\n")
@@ -438,7 +649,11 @@ func (m model) View() string {
 	if height < 10 {
 		height = 10
 	}
-	lines := strings.Split(m.body(), "\n")
+	body := m.body()
+	if m.commandOutput != "" {
+		body += "\n\nCOMMAND OUTPUT\n" + m.commandOutput
+	}
+	lines := strings.Split(body, "\n")
 	visible := height - 2
 	maxScroll := len(lines) - visible
 	if maxScroll < 0 {
@@ -453,11 +668,13 @@ func (m model) View() string {
 		end = len(lines)
 	}
 	content := lipgloss.NewStyle().Width(width-4).Height(height).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1, 2).Render(strings.Join(lines[scroll:end], "\n"))
-	footer := "←/→ tabs  ·  ↑/↓ scroll  ·  o actions  ·  r refresh  ·  q quit"
-	if m.loading {
+	footer := ": command  ·  n submit  ·  i import  ·  ? help  ·  q quit"
+	if m.commandMode {
+		footer = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(": ") + clean(m.commandInput) + "█"
+	} else if m.loading {
 		footer = "Refreshing snapshot…"
 	}
-	if m.err != nil {
+	if m.err != nil && !m.commandMode {
 		footer = lipgloss.NewStyle().Foreground(danger).Render(m.err.Error())
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabLine, content, lipgloss.NewStyle().Foreground(muted).Render(footer))

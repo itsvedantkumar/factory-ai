@@ -96,6 +96,8 @@ factory ui
 | `factory secret set NAME` | Store a credential in global Key Vault |
 | `factory github connect ORG` | Connect GitHub Enterprise credentials |
 
+Inside `factory ui`, press `:` to enter any Factory command without the `factory` prefix. Use `↑/↓` for command history. Shortcuts: `n` submit, `i` import workspace, `a` set secret, `y/x` approve or deny, `p/u` pause or resume, `?` help, and `q` quit. Command output and errors remain visible inside the native TUI.
+
 ## Architecture
 
 ```mermaid

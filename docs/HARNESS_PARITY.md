@@ -19,7 +19,7 @@ This matrix tracks capabilities documented by OpenAI Agents SDK, Claude Agent SD
 | Human approval | Partial | GitHub/release gates; mid-task approval UI remains planned |
 | Lifecycle hooks | Partial | Typed built-in scanner, policy, notification, snapshot, and durable approval hooks; additional hook points remain staged |
 | Tracing and usage | Complete | Privacy-allowlisted OpenTelemetry GenAI records, model/task usage, and structured logs |
-| Streaming events | Partial | Durable per-agent model/tool/heartbeat events in Telegram and both TUIs; push stream planned |
+| Streaming events | Partial | Durable per-agent model/tool/heartbeat events in Telegram and the native Go TUI; push stream planned |
 | Safe takeover | Planned | Lease/fencing design documented in roadmap |
 | Evaluation and promotion | Partial | Promptfoo contracts plus pinned Inspect AI and Harbor adapters; historical promotion runs remain scheduled work |
 | Signed extension marketplace | Partial | Strict Ed25519 manifest and artifact verification; catalog distribution remains planned |

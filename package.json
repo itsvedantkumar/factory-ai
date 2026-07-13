@@ -1,6 +1,6 @@
 {
   "name": "factory-ai",
-  "version": "1.6.1",
+  "version": "2.0.0",
   "description": "Deploy a private autonomous coding-agent factory on Azure: isolated builders, testers, security reviewers, durable orchestration, multi-model routing, memory, cost controls, and gated GitHub pull requests.",
   "private": false,
   "license": "MIT",
@@ -32,7 +32,6 @@
   },
   "bin": {
     "factory": "bin/factory",
-    "factory-ui": "src/tui.js",
     "agent-factory-ceo": "src/ceo.js",
     "agent-factory-control": "src/control-service.js",
     "agent-factory-dashboard": "src/dashboard.js",
@@ -74,7 +73,6 @@
     "@modelcontextprotocol/server-memory": "2026.7.4",
     "@playwright/mcp": "0.0.78",
     "@upstash/context7-mcp": "3.2.3",
-    "neo-blessed": "0.2.0",
     "zod": "3.25.76"
   },
   "devDependencies": {
