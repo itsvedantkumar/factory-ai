@@ -102,6 +102,7 @@ function taskState(task, results) {
 export function aggregateDashboard({ states = [], queue = {}, cost = null, runtime = {}, hostUptimeSeconds = 0, warnings = [], now = new Date() }) {
   const objectives = states.map((state) => {
     const results = state.results ?? {};
+    const objectiveTerminal = ["complete", "failed", "blocked", "cancelled", "denied", "expired"].includes(state.status);
     const plannedTasks = state.tasks?.length ? state.tasks : state.status === "planning" ? [{ id: "planner0", role: "planner", title: "Create delivery graph", dependsOn: [], complexity: "complex" }] : [];
     const tasks = plannedTasks.map((task) => {
       const resultState = taskState(task, results);
@@ -120,7 +121,7 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
         ? (new Date(results[task.id]?.completedAt ?? now).getTime() - new Date(results[task.id].startedAt).getTime()) / 1000
         : 0,
       activity,
-      stale: isStaleActivity(activity, stateValue, now, liveActivity ? 120 : 600),
+      stale: !objectiveTerminal && isStaleActivity(activity, stateValue, now, liveActivity ? 120 : 600),
       activityAgeSeconds: activity?.occurredAt ? Math.max(0, (now.getTime() - new Date(activity.occurredAt).getTime()) / 1000) : null,
       retries: activity?.retryCount ?? 0,
       lastError: activity?.lastError,

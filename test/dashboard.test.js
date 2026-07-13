@@ -105,3 +105,12 @@ test("surfaces stale agents as degraded runtime health", () => {
   assert.equal(dashboard.objectives[0].tasks[1].retries, 2);
   assert.equal(dashboard.objectives[0].tasks[1].lastError, "rate limited");
 });
+
+test("does not report unfinished tasks stale after their objective is terminal", () => {
+  const failedState = structuredClone(state);
+  failedState.status = "failed";
+  failedState.activity = { "test-one": { type: "task.queued", occurredAt: "2026-07-12T09:00:00.000Z" } };
+  const dashboard = aggregateDashboard({ states: [failedState], now: new Date("2026-07-12T10:03:00.000Z") });
+  assert.equal(dashboard.health.status, "healthy");
+  assert.equal(dashboard.health.staleAgents, 0);
+});

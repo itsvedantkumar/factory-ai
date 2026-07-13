@@ -4,6 +4,12 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-07-13
+
+### Fixed
+
+- Exclude unfinished tasks from stale-agent health after their objective reaches a terminal state.
+
 ## [1.5.0] - 2026-07-13
 
 ### Added
