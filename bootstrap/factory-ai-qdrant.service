@@ -6,7 +6,7 @@ Requires=docker.service
 [Service]
 Type=simple
 ExecStartPre=-/usr/bin/docker rm -f factory-ai-qdrant
-ExecStart=/usr/bin/docker run --rm --name factory-ai-qdrant --userns host --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 1024 --memory 2g --cpus 2 --publish 127.0.0.1:6333:6333 --volume /opt/agent-factory/state/qdrant:/qdrant/storage qdrant/qdrant@sha256:31407c0e8e32eb771b71718f1a4772e2ad47a07557917b21ac96792f40eb8007
+ExecStart=/usr/bin/docker run --rm --name factory-ai-qdrant --userns host --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 1024 --memory 2g --cpus 2 --publish 127.0.0.1:6333:6333 --volume /opt/agent-factory/state/qdrant:/qdrant/storage --volume /opt/agent-factory/state/qdrant-snapshots:/qdrant/snapshots qdrant/qdrant@sha256:31407c0e8e32eb771b71718f1a4772e2ad47a07557917b21ac96792f40eb8007
 ExecStop=/usr/bin/docker stop -t 20 factory-ai-qdrant
 Restart=always
 RestartSec=5

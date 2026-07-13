@@ -68,7 +68,7 @@ for secret_name in "${GITHUB_TOKEN_SECRET:-github-token}"; do
 done
 
 install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/home /opt/agent-factory/state/memory /opt/agent-factory/state/telegram /opt/agent-factory/state/retrieval /opt/agent-factory/workspaces /opt/agent-factory/logs
-install -d -o root -g root -m 0750 /opt/agent-factory/state/qdrant /opt/agent-factory/state/ollama
+install -d -o root -g root -m 0750 /opt/agent-factory/state/qdrant /opt/agent-factory/state/qdrant-snapshots /opt/agent-factory/state/ollama
 install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
 {
   printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"
@@ -118,6 +118,8 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
 } > /etc/agent-factory-control.env
 
 chown -R "$FACTORY_USER:$FACTORY_USER" /opt/agent-factory/state /opt/agent-factory/workspaces /opt/agent-factory/logs
+chown root:root /opt/agent-factory/state/qdrant /opt/agent-factory/state/qdrant-snapshots /opt/agent-factory/state/ollama
+chmod 0750 /opt/agent-factory/state/qdrant /opt/agent-factory/state/qdrant-snapshots /opt/agent-factory/state/ollama
 chown -R root:root "$APP_DIR"
 chmod -R go-w "$APP_DIR"
 install -m 0644 "$APP_DIR/bootstrap/agent-factory-worker.service" /etc/systemd/system/agent-factory-worker.service
