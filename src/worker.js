@@ -10,6 +10,7 @@ import { sendMessage } from "./bus.js";
 import { ContainerAgentRunner } from "./container-runner.js";
 import { ScannerSuite } from "./scanner-suite.js";
 
+process.title = "factory-ai-worker";
 const config = loadConfig();
 Object.assign(process.env, await loadRuntimeSecrets(config));
 await run("gh", ["auth", "setup-git"], { timeoutMs: 60_000 });

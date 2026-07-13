@@ -19,6 +19,7 @@ const AZURE_ENVIRONMENT = [
   "FACTORY_MODEL_REVIEWER",
   "FACTORY_MODEL_SECURITY",
   "FACTORY_MODEL_RELEASE",
+  "FACTORY_VERSION",
 ];
 
 function parseOutput(stdout) {
@@ -37,7 +38,7 @@ export class ContainerAgentRunner {
   }
 
   async executePacket(packet, directory) {
-    const name = `agent-${packet.objective.id}-${packet.task?.id ?? "planner"}`.toLowerCase().replaceAll(/[^a-z0-9_.-]/g, "-").slice(0, 63);
+    const name = `factory-ai-${packet.objective.id}-${packet.task?.id ?? "planner"}`.toLowerCase().replaceAll(/[^a-z0-9_.-]/g, "-").slice(0, 63);
     const args = [
       "run", "-i", "--rm", "--name", name,
       "--read-only",

@@ -2,6 +2,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
+import { DefaultAzureCredential } from "@azure/identity";
+import { BlobServiceClient } from "@azure/storage-blob";
 import { run } from "./process.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,6 +23,7 @@ export function createOperator(environment = process.env) {
   const vm = environment.FACTORY_VM ?? "agent-factory-vm";
   const namespace = environment.FACTORY_SERVICE_BUS ?? "";
   const vault = environment.FACTORY_KEY_VAULT ?? "";
+  const storageAccount = environment.FACTORY_STORAGE_ACCOUNT ?? "";
   const remote = async (script) => {
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try { return extractRunCommand(await command("az", ["vm", "run-command", "invoke", "--resource-group", resourceGroup, "--name", vm, "--command-id", "RunShellScript", "--scripts", script, "--query", "value[0].message", "--output", "tsv"])); }
@@ -41,6 +44,15 @@ export function createOperator(environment = process.env) {
   };
   return {
     dashboard: async () => {
+      if (storageAccount) {
+        try {
+          const service = new BlobServiceClient(`https://${storageAccount}.blob.core.windows.net`, new DefaultAzureCredential());
+          const value = await service.getContainerClient("operator").getBlockBlobClient("dashboard.json").downloadToBuffer();
+          return JSON.parse(value.toString("utf8"));
+        } catch (error) {
+          if (!["BlobNotFound", "ContainerNotFound"].includes(error.code)) throw error;
+        }
+      }
       const encoded = await remote("sudo -u factory env $(xargs < /etc/agent-factory-control.env) node /opt/agent-factory/app/src/dashboard.js --json | gzip -c | base64 -w0");
       return JSON.parse(gunzipSync(Buffer.from(encoded, "base64")).toString("utf8"));
     },
@@ -56,7 +68,7 @@ export function createOperator(environment = process.env) {
       return command(path.join(root, "bin/factory"), [action]);
     },
     capabilities: async () => JSON.parse(await readFile(path.join(root, "config/capabilities.json"), "utf8")),
-    config: () => ({ resourceGroup, vm, namespace, vault, models: { scout: "GPT-5.4 nano", simpleBuilder: "Kimi K2.7-Code", builder: "GPT-5.5", tester: "GPT-5.4", critical: "GPT-5.6" } }),
+    config: () => ({ resourceGroup, vm, namespace, vault, storageAccount, models: { scout: "GPT-5.4 nano", simpleBuilder: "Kimi K2.7-Code", builder: "GPT-5.5", tester: "GPT-5.4", critical: "GPT-5.6" } }),
     listSecrets: async () => withVault(async () => JSON.parse(await command("az", ["keyvault", "secret", "list", "--vault-name", vault, "--query", "[].{name:name,updated:attributes.updated}", "--output", "json"]))),
     setSecret: async (name, value) => withVault(async () => {
       if (!/^[A-Za-z0-9-]{1,127}$/.test(name) || !value) throw new Error("Valid secret name and value are required");

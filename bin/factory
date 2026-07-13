@@ -9,6 +9,7 @@ RESOURCE_GROUP=${FACTORY_RESOURCE_GROUP:-factory-ai-rg}
 VM=${FACTORY_VM:-agent-factory-vm}
 NAMESPACE=${FACTORY_SERVICE_BUS:-}
 VAULT=${FACTORY_KEY_VAULT:-}
+STORAGE=${FACTORY_STORAGE_ACCOUNT:-}
 
 remote() {
   az vm run-command invoke --resource-group "$RESOURCE_GROUP" --name "$VM" \
@@ -73,7 +74,7 @@ case "$command" in
     exec "$0" submit "$repo" "$objective"
     ;;
   ui)
-    FACTORY_RESOURCE_GROUP="$RESOURCE_GROUP" FACTORY_VM="$VM" FACTORY_SERVICE_BUS="$NAMESPACE" FACTORY_KEY_VAULT="$VAULT" node "$FACTORY_ROOT/src/tui.js"
+    FACTORY_RESOURCE_GROUP="$RESOURCE_GROUP" FACTORY_VM="$VM" FACTORY_SERVICE_BUS="$NAMESPACE" FACTORY_KEY_VAULT="$VAULT" FACTORY_STORAGE_ACCOUNT="$STORAGE" node "$FACTORY_ROOT/src/tui.js"
     ;;
   setup)
     for dependency in az gh jq curl ssh-keygen node; do command -v "$dependency" >/dev/null || { printf 'Missing dependency: %s\n' "$dependency" >&2; exit 1; }; done
@@ -96,6 +97,7 @@ case "$command" in
     deployment=$(az deployment group create --name agent-factory-setup --resource-group "$RESOURCE_GROUP" --template-file "$FACTORY_ROOT/infra/main.bicep" --parameters adminSshKey="$(< "$key.pub")" operatorObjectId="$operator" --output json)
     vault=$(jq -r '.properties.outputs.keyVaultName.value' <<<"$deployment")
     namespace=$(jq -r '.properties.outputs.serviceBusNamespace.value' <<<"$deployment")
+    storage=$(jq -r '.properties.outputs.storageAccount.value' <<<"$deployment")
     VAULT=$vault
     NAMESPACE=$namespace
     mkdir -p "$(dirname "$CONFIG_FILE")"
@@ -104,6 +106,7 @@ case "$command" in
       printf 'FACTORY_VM=%q\n' agent-factory-vm
       printf 'FACTORY_SERVICE_BUS=%q\n' "$namespace"
       printf 'FACTORY_KEY_VAULT=%q\n' "$vault"
+      printf 'FACTORY_STORAGE_ACCOUNT=%q\n' "$storage"
     } > "$CONFIG_FILE"
     chmod 0600 "$CONFIG_FILE"
     ip=$(curl -fsS https://api.ipify.org)
@@ -151,7 +154,7 @@ case "$command" in
     printf 'Azure foundation and credential vault ready. Config: %s\n' "$CONFIG_FILE"
     if [[ $deploy_now == true ]]; then
       source_ref=$(gh api repos/itsvedantkumar/factory-ai/commits/main --jq .sha)
-      parameters=(KEY_VAULT_NAME "$vault" SERVICE_BUS_NAMESPACE "$namespace" SERVICE_BUS_QUEUE code-tasks SOURCE_REPOSITORY itsvedantkumar/factory-ai SOURCE_REF "$source_ref")
+      parameters=(KEY_VAULT_NAME "$vault" SERVICE_BUS_NAMESPACE "$namespace" SERVICE_BUS_QUEUE code-tasks FACTORY_STORAGE_ACCOUNT "$storage" SOURCE_REPOSITORY itsvedantkumar/factory-ai SOURCE_REF "$source_ref")
       if [[ $provider == bedrock ]]; then
         parameters+=(AWS_REGION "$aws_region")
         for role in SCOUT PLANNER BUILDER TESTER DEBUGGER REVIEWER SECURITY RELEASE; do parameters+=("FACTORY_MODEL_$role" "bedrock/$bedrock_builder"); done

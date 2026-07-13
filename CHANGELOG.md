@@ -11,6 +11,14 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 - Azure and Bedrock provider wizard.
 - Durable evaluation, analytics, scaling, policy, extension, and recovery roadmap.
 
+## [1.3.0] - 2026-07-13
+
+### Added
+
+- RBAC-protected Azure Blob dashboard snapshots for lock-free multi-operator TUI access.
+- One-minute snapshot timer and direct local Azure-identity reads.
+- Factory AI process, container, journal, Azure, Bedrock, MCP, Git, and PR identity metadata.
+
 ## [1.2.1] - 2026-07-13
 
 ### Fixed

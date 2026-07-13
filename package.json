@@ -1,6 +1,6 @@
 {
   "name": "factory-ai",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Deploy a private autonomous coding-agent factory on Azure: isolated builders, testers, security reviewers, durable orchestration, multi-model routing, memory, cost controls, and gated GitHub pull requests.",
   "private": false,
   "license": "MIT",
@@ -40,6 +40,7 @@
     "agent-factory-release": "src/release-service.js",
     "agent-factory-task": "src/task-entry.js",
     "factory-ai-telegram": "src/telegram-service.js",
+    "factory-ai-snapshot": "src/snapshot.js",
     "agent-factory-worker": "src/worker.js"
   },
   "files": [
@@ -63,6 +64,7 @@
     "@azure/identity": "4.13.1",
     "@azure/keyvault-secrets": "4.10.0",
     "@azure/service-bus": "7.9.5",
+    "@azure/storage-blob": "12.28.0",
     "@inquirer/prompts": "8.5.2",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@modelcontextprotocol/server-memory": "2026.7.4",

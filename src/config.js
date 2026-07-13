@@ -9,6 +9,7 @@ const environmentSchema = z.object({
   KEY_VAULT_NAME: z.string().min(3),
   AZURE_SUBSCRIPTION_ID: z.string().optional(),
   FACTORY_RESOURCE_GROUP: z.string().default("factory-ai-rg"),
+  FACTORY_STORAGE_ACCOUNT: z.string().optional(),
   FACTORY_STATE_DIR: z.string().default("/opt/agent-factory/state"),
   FACTORY_WORKSPACE_DIR: z.string().default("/opt/agent-factory/workspaces"),
   FACTORY_REGISTRY: z.string().default("/opt/agent-factory/app/config/capabilities.json"),
@@ -41,6 +42,7 @@ export function loadConfig(environment = process.env) {
     keyVaultUrl: `https://${env.KEY_VAULT_NAME}.vault.azure.net`,
     subscriptionId: env.AZURE_SUBSCRIPTION_ID,
     resourceGroup: env.FACTORY_RESOURCE_GROUP,
+    storageAccount: env.FACTORY_STORAGE_ACCOUNT,
     secretNames: {
       TEXTVED_AZURE_API_KEY: env.AZURE_PRIMARY_API_KEY_SECRET,
       TEXTVED_AZURE_BASE_URL: env.AZURE_PRIMARY_BASE_URL_SECRET,

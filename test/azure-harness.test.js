@@ -8,8 +8,10 @@ function response(body, status = 200) {
 
 test("continues a response after executing an allowlisted function", async () => {
   const requests = [];
+  const requestHeaders = [];
   const fetch = async (_url, options) => {
     requests.push(JSON.parse(options.body));
+    requestHeaders.push(options.headers);
     if (requests.length === 1) return response({
       id: "response-1",
       status: "completed",
@@ -38,6 +40,8 @@ test("continues a response after executing an allowlisted function", async () =>
   assert.deepEqual(result.usage, { inputTokens: 140, cachedInputTokens: 50, outputTokens: 15 });
   assert.equal(requests[1].previous_response_id, "response-1");
   assert.equal(requests[0].max_output_tokens, 777);
+  assert.equal(requests[0].model, "gpt-test");
+  assert.match(requestHeaders[0]["user-agent"], /^factory-ai\//);
   assert.equal(Object.hasOwn(requests[0].tools[0], "strict"), false);
   assert.deepEqual(requests[1].input, [{ type: "function_call_output", call_id: "call-1", output: "content:README.md" }]);
 });

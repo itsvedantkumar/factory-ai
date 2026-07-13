@@ -6,6 +6,7 @@ Requires=docker.service
 
 [Service]
 Type=oneshot
+SyslogIdentifier=factory-ai-updater
 User=root
 Group=root
 ExecStart=/opt/agent-factory/app/bootstrap/auto-update.sh

@@ -11,6 +11,7 @@ import { loadLocalState, loadQueueMetrics } from "./dashboard.js";
 import { formatObjectiveProgress, isAllowedChat, objectiveFromTelegram, parseTelegramCommand } from "./telegram.js";
 import { log } from "./log.js";
 
+process.title = "factory-ai-telegram";
 const config = loadConfig();
 Object.assign(process.env, await loadRuntimeSecrets(config, undefined, ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_CHAT_IDS"]));
 const token = process.env.TELEGRAM_BOT_TOKEN;

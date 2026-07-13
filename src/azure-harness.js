@@ -31,6 +31,7 @@ export class AzureResponsesHarness {
     retries = 4,
     timeoutMs = 180_000,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    userAgent = `factory-ai/${process.env.FACTORY_VERSION ?? "dev"}`,
   }) {
     this.endpoint = `${baseUrl.replace(/\/$/, "")}/responses`;
     this.apiKey = apiKey;
@@ -42,6 +43,7 @@ export class AzureResponsesHarness {
     this.retries = retries;
     this.timeoutMs = timeoutMs;
     this.sleep = sleep;
+    this.userAgent = userAgent;
   }
 
   async request(body) {
@@ -56,6 +58,8 @@ export class AzureResponsesHarness {
             "content-type": "application/json",
             "api-key": this.apiKey,
             authorization: `Bearer ${this.apiKey}`,
+            "user-agent": this.userAgent,
+            "x-ms-useragent": this.userAgent,
           },
           body: JSON.stringify(body),
           signal: controller.signal,

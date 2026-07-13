@@ -2,6 +2,8 @@
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
+process.title = "factory-ai-updater";
+
 function parts(value) {
   if (!/^\d+\.\d+\.\d+$/.test(value)) throw new Error(`Unsupported version: ${value}`);
   return value.split(".").map(Number);

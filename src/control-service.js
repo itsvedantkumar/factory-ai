@@ -7,6 +7,7 @@ import { loadRegistry } from "./registry.js";
 import { log } from "./log.js";
 import { ProjectMemory } from "./project-memory.js";
 
+process.title = "factory-ai-control";
 const config = loadConfig();
 const bus = createBus(config, config.controlQueue, config.agentQueue);
 const releaseSender = bus.client.createSender(config.releaseQueue);

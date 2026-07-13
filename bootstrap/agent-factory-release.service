@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+SyslogIdentifier=factory-ai-release
 User=factory
 Group=factory
 WorkingDirectory=/opt/agent-factory/app

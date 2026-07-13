@@ -65,7 +65,7 @@ function renderCapabilities() {
 
 function renderSettings() {
   const config = operator.config();
-  main.setContent(`{bold}Runtime{/}\n\n  Resource group  ${config.resourceGroup}\n  VM              ${config.vm}\n  Service Bus     ${config.namespace}\n  Key Vault       ${config.vault}\n\n{bold}Model policy{/}\n\n  Scout           GPT-5.4 nano\n  Simple builder  Kimi K2.7-Code\n  Builder         GPT-5.5\n  Tester          GPT-5.4\n  Critical roles  GPT-5.6\n\n{#7f8b99-fg}Run factory setup to change providers or role routes.{/}`);
+  main.setContent(`{bold}Runtime{/}\n\n  Resource group  ${config.resourceGroup}\n  VM              ${config.vm}\n  Service Bus     ${config.namespace}\n  Key Vault       ${config.vault}\n  Operator state  ${config.storageAccount || "Run Command fallback"}\n\n{bold}Model policy{/}\n\n  Scout           GPT-5.4 nano\n  Simple builder  Kimi K2.7-Code\n  Builder         GPT-5.5\n  Tester          GPT-5.4\n  Critical roles  GPT-5.6\n\n{#7f8b99-fg}Run factory setup to change providers or role routes.{/}`);
 }
 
 function render() {

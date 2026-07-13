@@ -4,6 +4,7 @@ After=agent-factory-worker.service
 
 [Service]
 Type=oneshot
+SyslogIdentifier=factory-ai-reporter
 User=factory
 Group=factory
 WorkingDirectory=/opt/agent-factory/app

@@ -20,6 +20,7 @@ var prefix = 'agent-factory'
 var unique = uniqueString(subscription().subscriptionId, resourceGroup().id)
 var keyVaultName = 'af${take(unique, 18)}'
 var serviceBusName = 'af-${unique}'
+var storageName = 'fa${take(unique, 20)}'
 
 resource nsg 'Microsoft.Network/networkSecurityGroups@2024-05-01' = {
   name: '${prefix}-nsg'
@@ -144,6 +145,43 @@ resource vault 'Microsoft.KeyVault/vaults@2024-11-01' = {
         }
       ]
     }
+  }
+}
+
+resource storage 'Microsoft.Storage/storageAccounts@2025-01-01' = {
+  name: storageName
+  location: location
+  sku: {
+    name: 'Standard_ZRS'
+  }
+  kind: 'StorageV2'
+  properties: {
+    allowBlobPublicAccess: false
+    allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true
+    minimumTlsVersion: 'TLS1_2'
+    publicNetworkAccess: 'Enabled'
+    supportsHttpsTrafficOnly: true
+  }
+}
+
+resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2025-01-01' = {
+  parent: storage
+  name: 'default'
+  properties: {
+    deleteRetentionPolicy: {
+      enabled: true
+      days: 30
+    }
+    isVersioningEnabled: true
+  }
+}
+
+resource operatorContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2025-01-01' = {
+  parent: blobService
+  name: 'operator'
+  properties: {
+    publicAccess: 'None'
   }
 }
 
@@ -299,11 +337,32 @@ resource workerCostReader 'Microsoft.Authorization/roleAssignments@2022-04-01' =
   }
 }
 
+resource workerBlobContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, vm.id, 'storage-blob-data-contributor')
+  scope: storage
+  properties: {
+    principalId: vm.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe')
+  }
+}
+
+resource operatorBlobReader 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storage.id, operatorObjectId, 'storage-blob-data-reader')
+  scope: storage
+  properties: {
+    principalId: operatorObjectId
+    principalType: 'User'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1')
+  }
+}
+
 output vmName string = vm.name
 output privateIp string = nic.properties.ipConfigurations[0].properties.privateIPAddress
 output egressIp string = egressIp.properties.ipAddress
 output keyVaultName string = vault.name
 output serviceBusNamespace string = serviceBus.name
+output storageAccount string = storage.name
 output controlQueue string = queues[0].name
 output agentQueue string = queues[1].name
 output releaseQueue string = queues[2].name

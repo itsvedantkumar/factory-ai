@@ -7,6 +7,7 @@ import { ReleaseBot } from "./release-bot.js";
 import { GitHubRelease } from "./release.js";
 import { log } from "./log.js";
 
+process.title = "factory-ai-release";
 const config = loadConfig();
 Object.assign(process.env, await loadRuntimeSecrets(config, undefined, ["GH_TOKEN"]));
 await run("gh", ["auth", "setup-git"], { timeoutMs: 60_000 });

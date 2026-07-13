@@ -12,7 +12,7 @@ function definitions(tools) {
 
 export class BedrockHarness {
   constructor({ client, region = process.env.AWS_REGION ?? "us-east-1", model, tools, maxSteps = 40, maxOutputTokens = 4096 }) {
-    this.client = client ?? new BedrockRuntimeClient({ region });
+    this.client = client ?? new BedrockRuntimeClient({ region, customUserAgent: `factory-ai/${process.env.FACTORY_VERSION ?? "dev"}` });
     this.model = model;
     this.tools = tools;
     this.maxSteps = maxSteps;

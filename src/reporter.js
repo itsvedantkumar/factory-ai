@@ -4,6 +4,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { aggregateDashboard, loadAzureCost, loadLocalState, loadQueueMetrics, stableStringify } from "./dashboard.js";
 import { loadConfig } from "./config.js";
+import { DefaultAzureCredential } from "@azure/identity";
+import { BlobServiceClient } from "@azure/storage-blob";
+
+process.title = "factory-ai-reporter";
 
 function markdown(dashboard) {
   const objectives = Object.entries(dashboard.summary.objectives).map(([state, count]) => `${state}=${count}`).join(", ") || "none";
@@ -30,16 +34,31 @@ export async function writeHourlyReport(root, dashboard, { now = new Date(), ret
   return stem;
 }
 
+export async function uploadDashboardSnapshot(config, dashboard, {
+  credential = new DefaultAzureCredential(),
+  createClient = (url, auth) => new BlobServiceClient(url, auth),
+} = {}) {
+  if (!config.storageAccount) return false;
+  const service = createClient(`https://${config.storageAccount}.blob.core.windows.net`, credential);
+  const blob = service.getContainerClient("operator").getBlockBlobClient("dashboard.json");
+  await blob.uploadData(Buffer.from(stableStringify(dashboard)), {
+    blobHTTPHeaders: { blobContentType: "application/json; charset=utf-8", blobCacheControl: "no-store" },
+  });
+  return true;
+}
+
 async function main() {
   const root = process.env.FACTORY_STATE_DIR ?? "/opt/agent-factory/state";
+  const config = loadConfig();
   const loaded = await loadLocalState(root);
-  const queue = process.env.SERVICE_BUS_NAMESPACE ? await loadQueueMetrics(loadConfig()) : {};
+  const queue = process.env.SERVICE_BUS_NAMESPACE ? await loadQueueMetrics(config) : {};
   let cost = null;
   if (process.env.AZURE_SUBSCRIPTION_ID) {
-    try { cost = await loadAzureCost(loadConfig()); } catch (error) { loaded.warnings.push(`Cost unavailable: ${error.message}`); }
+    try { cost = await loadAzureCost(config); } catch (error) { loaded.warnings.push(`Cost unavailable: ${error.message}`); }
   }
   const dashboard = aggregateDashboard({ ...loaded, queue, cost, runtime: { status: "running" } });
   const stem = await writeHourlyReport(root, dashboard);
+  await uploadDashboardSnapshot(config, dashboard);
   process.stdout.write(`${JSON.stringify({ event: "hourly_report", report: stem })}\n`);
 }
 

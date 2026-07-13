@@ -6,6 +6,8 @@ import { loadConfig } from "./config.js";
 import { createBus, sendMessage } from "./bus.js";
 import { parseObjective } from "./validation.js";
 
+process.title = "factory-ai-ceo";
+
 function argumentsFrom(argv) {
   const options = { baseBranch: "main", wait: false, timeoutMs: 3_600_000, words: [] };
   for (let index = 0; index < argv.length; index += 1) {

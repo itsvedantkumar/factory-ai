@@ -10,6 +10,7 @@ const input = await new Promise((resolve, reject) => {
   process.stdin.on("error", reject);
 });
 const packet = JSON.parse(input);
+process.title = `factory-ai-${packet.task?.role ?? packet.mode}`.slice(0, 63);
 const registry = await loadRegistry("/opt/agent-factory/app/config/capabilities.json");
 const runner = new AzureAgentRunner({ timeoutMs: 1_800_000 }, registry);
 let result;

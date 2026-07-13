@@ -35,6 +35,7 @@ test "$(node --version | cut -d. -f1)" = "v20"
 id "$FACTORY_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /usr/sbin/nologin "$FACTORY_USER"
 test -f "$APP_DIR/package-lock.json"
 npm ci --omit=dev --prefix "$APP_DIR"
+factory_version=$(node -p "require('$APP_DIR/package.json').version")
 docker build --file "$APP_DIR/Dockerfile.worker" --tag "$FACTORY_WORKER_IMAGE" "$APP_DIR"
 for scanner_image in \
   aquasec/trivy@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f \
@@ -74,13 +75,16 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
   printf 'AZURE_SUBSCRIPTION_ID=%s\n' "$subscription_id"
   printf 'FACTORY_RESOURCE_GROUP=%s\n' "$resource_group"
+  [[ -n ${FACTORY_STORAGE_ACCOUNT:-} ]] && printf 'FACTORY_STORAGE_ACCOUNT=%s\n' "$FACTORY_STORAGE_ACCOUNT"
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_WORKSPACE_DIR=/opt/agent-factory/workspaces\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
   printf 'FACTORY_WORKER_IMAGE=%s\n' "$FACTORY_WORKER_IMAGE"
+  printf 'FACTORY_VERSION=%s\n' "$factory_version"
   printf 'MAX_CONCURRENCY=3\n'
   printf 'TASK_TIMEOUT_MS=1800000\n'
   printf 'MAX_DELIVERY_COUNT=8\n'
+  printf 'FACTORY_VERSION=%s\n' "$factory_version"
   [[ -n ${AWS_REGION:-} ]] && printf 'AWS_REGION=%s\nAWS_DEFAULT_REGION=%s\n' "$AWS_REGION" "$AWS_REGION"
   for variable in FACTORY_MODEL_SCOUT FACTORY_MODEL_PLANNER FACTORY_MODEL_BUILDER FACTORY_MODEL_TESTER FACTORY_MODEL_DEBUGGER FACTORY_MODEL_REVIEWER FACTORY_MODEL_SECURITY FACTORY_MODEL_RELEASE; do
     [[ -n ${!variable:-} ]] && printf '%s=%s\n' "$variable" "${!variable}"
@@ -96,6 +100,7 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
   printf 'KEY_VAULT_NAME=%s\n' "$KEY_VAULT_NAME"
   printf 'AZURE_SUBSCRIPTION_ID=%s\n' "$subscription_id"
   printf 'FACTORY_RESOURCE_GROUP=%s\n' "$resource_group"
+  [[ -n ${FACTORY_STORAGE_ACCOUNT:-} ]] && printf 'FACTORY_STORAGE_ACCOUNT=%s\n' "$FACTORY_STORAGE_ACCOUNT"
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
   printf 'MAX_DELIVERY_COUNT=8\n'
@@ -117,6 +122,8 @@ install -m 0644 "$APP_DIR/bootstrap/agent-factory-telegram.service" /etc/systemd
 chmod 0755 "$APP_DIR/bootstrap/auto-update.sh"
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-update.service" /etc/systemd/system/factory-ai-update.service
 install -m 0644 "$APP_DIR/bootstrap/factory-ai-update.timer" /etc/systemd/system/factory-ai-update.timer
+install -m 0644 "$APP_DIR/bootstrap/factory-ai-snapshot.service" /etc/systemd/system/factory-ai-snapshot.service
+install -m 0644 "$APP_DIR/bootstrap/factory-ai-snapshot.timer" /etc/systemd/system/factory-ai-snapshot.timer
 systemctl daemon-reload
 systemctl enable --now agent-factory-worker.service
 systemctl enable --now agent-factory-control.service
@@ -124,5 +131,6 @@ systemctl enable --now agent-factory-release.service
 systemctl enable --now agent-factory-reporter.timer
 systemctl enable --now agent-factory-telegram.service
 systemctl enable --now factory-ai-update.timer
+systemctl enable --now factory-ai-snapshot.timer
 systemctl restart agent-factory-control.service agent-factory-worker.service agent-factory-release.service
 echo "Agent factory worker installed"

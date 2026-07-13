@@ -1,0 +1,18 @@
+[Unit]
+Description=Publish Factory AI operator dashboard snapshot
+After=network-online.target agent-factory-control.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=factory
+Group=factory
+WorkingDirectory=/opt/agent-factory/app
+EnvironmentFile=/etc/agent-factory-control.env
+ExecStart=/usr/bin/node /opt/agent-factory/app/src/snapshot.js
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0027
+SyslogIdentifier=factory-ai-snapshot
