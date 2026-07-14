@@ -31,22 +31,51 @@ func TestSynchronizedTranscriptAcceptsConcurrentStreams(t *testing.T) {
 }
 
 func TestCommandBarAcceptsTypedFactoryCommands(t *testing.T) {
-	updated, _ := (model{}).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}})
-	current := updated.(model)
-	if !current.commandMode {
-		t.Fatal("expected command mode")
-	}
+	current := newModel(nil, "Factory AI", "Test")
+	var updated tea.Model
 	for _, character := range "workspace list" {
 		updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{character}})
 		current = updated.(model)
 	}
-	if current.commandInput != "workspace list" {
-		t.Fatalf("got %q", current.commandInput)
+	if current.editor.Value() != "workspace list" {
+		t.Fatalf("got %q", current.editor.Value())
 	}
 	updated, command := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	current = updated.(model)
-	if current.commandMode || command == nil {
+	if current.editor.Value() != "" || command == nil {
 		t.Fatal("expected executable native command")
+	}
+}
+
+func TestCommandPalettePrefillsSelectedAction(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "beta"}}
+	current.selectedWorkspace = "beta"
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	current = updated.(model)
+	if !current.showPalette {
+		t.Fatal("expected command palette")
+	}
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if current.showPalette || current.editor.Value() != "submit beta " {
+		t.Fatalf("palette did not prefill selected action: %q", current.editor.Value())
+	}
+}
+
+func TestCommandHistoryUsesArrowKeys(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.commandHistory = []string{"workspace list", "models show"}
+	current.historyIndex = len(current.commandHistory)
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyUp})
+	current = updated.(model)
+	if current.editor.Value() != "models show" {
+		t.Fatalf("history did not recall latest command: %q", current.editor.Value())
+	}
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyDown})
+	current = updated.(model)
+	if current.editor.Value() != "" {
+		t.Fatalf("history did not return to empty input: %q", current.editor.Value())
 	}
 }
 
@@ -82,7 +111,8 @@ func TestValidateFactoryCommandRejectsRecursionAndShellSyntax(t *testing.T) {
 }
 
 func TestCommandResultsUseDedicatedConsoleAndApprovalIDsRender(t *testing.T) {
-	updated, _ := (model{}).Update(commandResultMsg{command: "factory workspace list", output: "smoke"})
+	base := newModel(nil, "Factory AI", "Test")
+	updated, _ := base.Update(commandResultMsg{command: "factory workspace list", output: "smoke"})
 	current := updated.(model)
 	if current.err != nil || !strings.Contains(current.commandOutput, "smoke") {
 		t.Fatal("command output was not routed to console")
@@ -103,7 +133,8 @@ func TestCommandResultsUseDedicatedConsoleAndApprovalIDsRender(t *testing.T) {
 }
 
 func TestCommandFailureStaysInConsoleInsteadOfGlobalPageError(t *testing.T) {
-	updated, _ := (model{}).Update(commandResultMsg{command: "factory wrong", output: "unknown command", err: fmt.Errorf("exit 2")})
+	base := newModel(nil, "Factory AI", "Test")
+	updated, _ := base.Update(commandResultMsg{command: "factory wrong", output: "unknown command", err: fmt.Errorf("exit 2")})
 	current := updated.(model)
 	if current.err != nil {
 		t.Fatal("command error leaked into global page state")
@@ -123,7 +154,9 @@ func TestNavigationIsWorkspaceFirstAndOperationalViewsAreConsolidated(t *testing
 			t.Fatalf("tabs are not consolidated: %#v", tabs)
 		}
 	}
-	current := model{workspaces: []workspace{{Name: "app", Repository: "acme/app"}}, selectedWorkspace: "app"}
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "app", Repository: "acme/app"}}
+	current.selectedWorkspace = "app"
 	current.dashboard.Objectives = []objective{{ID: "a", Repository: "https://github.com/acme/app.git"}, {ID: "b", Repository: "https://github.com/acme/other.git"}}
 	visible := current.visibleObjectives()
 	if len(visible) != 1 || visible[0].ID != "a" {
@@ -132,21 +165,27 @@ func TestNavigationIsWorkspaceFirstAndOperationalViewsAreConsolidated(t *testing
 }
 
 func TestWorkspaceSelectionSurvivesRefreshAndScopesShortcuts(t *testing.T) {
-	current := model{workspaces: []workspace{{Name: "alpha"}, {Name: "beta"}}, selectedWorkspace: "beta"}
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "alpha"}, {Name: "beta"}}
+	current.selectedWorkspace = "beta"
 	updated, _ := current.Update(snapshotMsg{workspaces: []workspace{{Name: "beta"}, {Name: "alpha"}}})
 	current = updated.(model)
 	if current.selectedWorkspace != "beta" {
 		t.Fatalf("selection changed to %q", current.selectedWorkspace)
 	}
-	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
 	current = updated.(model)
-	if current.commandInput != "submit beta " {
-		t.Fatalf("shortcut ignored workspace: %q", current.commandInput)
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if current.editor.Value() != "submit beta " {
+		t.Fatalf("shortcut ignored workspace: %q", current.editor.Value())
 	}
 }
 
 func TestDashboardCountsAndConsoleAreScopedAndScrollable(t *testing.T) {
-	current := model{workspaces: []workspace{{Name: "app", Repository: "acme/app"}}, selectedWorkspace: "app"}
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "app", Repository: "acme/app"}}
+	current.selectedWorkspace = "app"
 	current.dashboard.Objectives = []objective{{Repository: "https://github.com/acme/app.git", Status: "complete"}, {Repository: "https://github.com/acme/other.git", Status: "failed"}}
 	rendered := current.overview()
 	if !strings.Contains(rendered, "complete 1") || strings.Contains(rendered, "failed 1") {
@@ -154,24 +193,60 @@ func TestDashboardCountsAndConsoleAreScopedAndScrollable(t *testing.T) {
 	}
 	updated, _ := current.Update(commandResultMsg{command: "factory --help", output: strings.Repeat("line\n", 12)})
 	current = updated.(model)
-	before := current.consoleScroll
-	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyCtrlUp})
+	current.content.Height = 4
+	current.syncViewport()
+	current.content.GotoBottom()
+	before := current.content.YOffset
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyPgUp})
 	current = updated.(model)
-	if current.consoleScroll >= before {
+	if current.content.YOffset >= before {
 		t.Fatal("console did not scroll upward")
 	}
 }
 
 func TestLargeWorkspaceCatalogCannotHideCommandLine(t *testing.T) {
-	current := model{width: 120, height: 35, selectedWorkspace: "workspace-50", commandOutput: strings.Repeat("output\n", 50)}
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 120, 35
+	current.selectedWorkspace = "workspace-50"
+	current.commandOutput = strings.Repeat("output\n", 50)
 	for index := 0; index < 100; index++ {
 		current.workspaces = append(current.workspaces, workspace{Name: fmt.Sprintf("workspace-%d", index), Repository: fmt.Sprintf("acme/repo-%d", index)})
 	}
+	current.resize()
+	current.syncViewport()
 	rendered := current.View()
 	if lipgloss.Height(rendered) > current.height {
 		t.Fatalf("rendered height %d exceeds terminal %d", lipgloss.Height(rendered), current.height)
 	}
-	if !strings.Contains(rendered, "Press :") {
+	if !strings.Contains(rendered, "Factory command") {
 		t.Fatal("command line disappeared")
+	}
+}
+
+func TestInterfaceFitsNarrowTerminalsAndPalette(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {40, 15}} {
+		current := newModel(nil, "Factory AI with a very long name", "Test")
+		current.width, current.height = size[0], size[1]
+		current.resize()
+		current.syncViewport()
+		for _, palette := range []bool{false, true} {
+			current.showPalette = palette
+			rendered := current.View()
+			if lipgloss.Width(rendered) > current.width || lipgloss.Height(rendered) > current.height {
+				t.Fatalf("rendered %dx%d exceeds terminal %dx%d (palette=%v editor=%dx%d content=%dx%d)", lipgloss.Width(rendered), lipgloss.Height(rendered), current.width, current.height, palette, lipgloss.Width(current.editor.View()), lipgloss.Height(current.editor.View()), lipgloss.Width(current.content.View()), lipgloss.Height(current.content.View()))
+			}
+		}
+	}
+}
+
+func TestGlobalQuitWorksInsidePalette(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.showPalette = true
+	_, command := current.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if command == nil {
+		t.Fatal("ctrl+c was swallowed by command palette")
+	}
+	if _, ok := command().(tea.QuitMsg); !ok {
+		t.Fatal("ctrl+c did not issue quit")
 	}
 }

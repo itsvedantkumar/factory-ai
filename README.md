@@ -96,7 +96,7 @@ factory ui
 | `factory secret set NAME` | Store a credential in global Key Vault |
 | `factory github connect ORG` | Connect GitHub Enterprise credentials |
 
-Inside `factory ui`, select a workspace from the persistent left sidebar with `[`/`]`; Dashboard, Objectives, and Agents are scoped to it. Settings contains secrets, logs, models, runtime, and capabilities. Press `:` or Enter to focus the dedicated command line and enter any Factory command without the `factory` prefix. Use `↑/↓` for command history and `Ctrl+↑/↓` for console scrollback. Shortcuts: `n` submit to the selected workspace, `i` import, `a` set secret, `y/x` approve or deny, `p/u` pause or resume, `?` help, `Ctrl+L` clear console, and `q` quit.
+Inside `factory ui`, the active workspace appears in the context sidebar; Dashboard, Objectives, and Agents are scoped to it. The interface follows the proven MIT-licensed OpenCode Go TUI model: a 70/30 detail/context split, persistent bottom command editor, viewport, and modal command palette. Type any Factory command without the `factory` prefix and press Enter. Use `Ctrl+K` for actions, `Ctrl+P/N` for workspaces, Tab for pages, `↑/↓` for command history, `PgUp/PgDn` for output, and `Ctrl+C` to quit.
 
 ## Architecture
 

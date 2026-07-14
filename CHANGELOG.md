@@ -4,6 +4,14 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-07-14
+
+### Changed
+
+- Replaced the custom terminal interaction layer with the proven MIT-licensed OpenCode Go TUI architecture: a 70/30 split pane, persistent Bubbles textarea, viewport, and modal-first command routing.
+- Added an OpenCode-style command palette, real cursor editing and paste support, command history, responsive narrow-terminal behavior, and workspace-aware action prefills.
+- Added third-party attribution while retaining Factory's command validation and Azure control-plane boundaries.
+
 ## [2.1.0] - 2026-07-13
 
 ### Changed

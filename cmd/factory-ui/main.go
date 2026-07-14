@@ -18,6 +18,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
+	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -125,12 +127,30 @@ type model struct {
 	selectedWorkspace string
 	loading           bool
 	err               error
-	commandMode       bool
-	commandInput      string
 	commandOutput     string
 	commandHistory    []string
 	historyIndex      int
-	consoleScroll     int
+	editor            textarea.Model
+	content           viewport.Model
+	showPalette       bool
+	paletteIndex      int
+}
+
+type paletteAction struct {
+	title       string
+	description string
+	prefix      string
+}
+
+var paletteActions = []paletteAction{
+	{title: "New objective", description: "Submit work to the selected workspace", prefix: "submit {workspace} "},
+	{title: "Import workspace", description: "Add a local path or owner/repository", prefix: "workspace import "},
+	{title: "Set secret", description: "Store a secret in Azure Key Vault", prefix: "secret set "},
+	{title: "Approve release", description: "Approve a pending release gate", prefix: "approval approve "},
+	{title: "Deny release", description: "Reject a pending release gate", prefix: "approval deny "},
+	{title: "Show models", description: "Inspect active role and model routes", prefix: "models show"},
+	{title: "Pause factory", description: "Stop dispatching new work", prefix: "pause"},
+	{title: "Resume factory", description: "Resume work dispatch", prefix: "resume"},
 }
 
 var (
@@ -323,159 +343,178 @@ func fetchCmd(client *azblob.Client) tea.Cmd {
 func tickCmd() tea.Cmd {
 	return tea.Tick(15*time.Second, func(value time.Time) tea.Msg { return tickMsg(value) })
 }
-func (m model) Init() tea.Cmd { return tea.Batch(fetchCmd(m.client), tickCmd()) }
+
+func newModel(client *azblob.Client, factoryName, purpose string) model {
+	editor := textarea.New()
+	editor.Placeholder = "Factory command (for example: submit workspace fix the failing test)"
+	editor.Prompt = ""
+	editor.ShowLineNumbers = false
+	editor.CharLimit = 12_000
+	editor.SetHeight(1)
+	editor.Focus()
+	return model{
+		client:      client,
+		factoryName: factoryName,
+		purpose:     purpose,
+		loading:     true,
+		editor:      editor,
+		content:     viewport.New(0, 0),
+	}
+}
+
+func (m *model) resize() {
+	width, height := max(m.width, 1), max(m.height, 1)
+	editorHeight := 4
+	if height < 18 {
+		editorHeight = 3
+	}
+	topHeight := max(height-editorHeight-2, 1)
+	contentWidth := width
+	if width >= 90 {
+		contentWidth = width * 7 / 10
+	}
+	m.content.Width = max(contentWidth-4, 1)
+	m.content.Height = max(topHeight-3, 1)
+	m.editor.SetWidth(max(width-13, 1))
+	m.editor.SetHeight(max(editorHeight-3, 1))
+}
+
+func (m *model) syncViewport() {
+	value := m.body()
+	if m.commandOutput != "" {
+		value += "\n\n" + lipgloss.NewStyle().Bold(true).Render("COMMAND LOG") + "\n" + clean(m.commandOutput)
+	}
+	m.content.SetContent(value)
+}
+
+func (m *model) setEditorValue(value string) {
+	if selected := m.selected(); selected != nil {
+		value = strings.ReplaceAll(value, "{workspace}", selected.Name)
+	} else {
+		value = strings.ReplaceAll(value, "{workspace} ", "")
+	}
+	m.editor.SetValue(value)
+	m.editor.CursorEnd()
+	m.editor.Focus()
+}
+
+func (m model) Init() tea.Cmd { return tea.Batch(fetchCmd(m.client), tickCmd(), textarea.Blink) }
 
 func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.KeyMsg:
-		if m.commandMode {
+		if m.showPalette {
 			switch msg.String() {
-			case "esc":
-				m.commandMode = false
-				m.commandInput = ""
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "ctrl+k":
+				m.showPalette = false
+			case "up", "k":
+				if m.paletteIndex > 0 {
+					m.paletteIndex--
+				}
+			case "down", "j":
+				if m.paletteIndex < len(paletteActions)-1 {
+					m.paletteIndex++
+				}
 			case "enter":
-				line := strings.TrimSpace(m.commandInput)
-				args, err := parseCommandLine(line)
-				if err == nil {
-					err = validateFactoryCommand(args)
-				}
-				if err != nil {
-					m.commandOutput = err.Error()
-					return m, nil
-				}
-				m.commandMode = false
-				m.commandInput = ""
-				m.commandHistory = append(m.commandHistory, line)
-				m.historyIndex = len(m.commandHistory)
-				if interactiveFactoryCommand(args) {
-					return m, interactiveFactoryProcess(args)
-				}
-				m.loading = true
-				return m, executeFactoryCommand(args)
-			case "backspace", "ctrl+h":
-				runes := []rune(m.commandInput)
-				if len(runes) > 0 {
-					m.commandInput = string(runes[:len(runes)-1])
-				}
-			case "ctrl+u":
-				m.commandInput = ""
-			case "up":
-				if m.historyIndex > 0 {
-					m.historyIndex--
-					m.commandInput = m.commandHistory[m.historyIndex]
-				}
-			case "down":
-				if m.historyIndex < len(m.commandHistory)-1 {
-					m.historyIndex++
-					m.commandInput = m.commandHistory[m.historyIndex]
-				} else {
-					m.historyIndex = len(m.commandHistory)
-					m.commandInput = ""
-				}
-			default:
-				if len(msg.Runes) > 0 {
-					m.commandInput += string(msg.Runes)
-				}
+				m.setEditorValue(paletteActions[m.paletteIndex].prefix)
+				m.showPalette = false
 			}
 			return m, nil
 		}
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "ctrl+c":
 			return m, tea.Quit
-		case "left", "h":
+		case "ctrl+k":
+			m.showPalette = true
+			m.paletteIndex = 0
+			return m, nil
+		case "ctrl+left":
 			if m.tab > 0 {
 				m.tab--
-				m.scroll = 0
 			}
-		case "right", "l", "tab":
+			m.syncViewport()
+			m.content.GotoTop()
+			return m, nil
+		case "ctrl+right", "tab":
 			if m.tab < len(tabs)-1 {
 				m.tab++
 			} else {
 				m.tab = 0
 			}
-			m.scroll = 0
-		case "up", "k":
-			if m.scroll > 0 {
-				m.scroll--
-			}
-		case "down", "j":
-			m.scroll++
-		case "pgup":
-			m.scroll -= 10
-			if m.scroll < 0 {
-				m.scroll = 0
-			}
-		case "pgdown":
-			m.scroll += 10
-		case "home":
-			m.scroll = 0
-		case "[", "shift+up":
+			m.syncViewport()
+			m.content.GotoTop()
+			return m, nil
+		case "ctrl+p":
 			if index := m.selectedIndex(); index > 0 {
 				m.selectedWorkspace = m.workspaces[index-1].Name
-				m.scroll = 0
 			}
-		case "]", "shift+down":
+			m.syncViewport()
+			m.content.GotoTop()
+			return m, nil
+		case "ctrl+n":
 			if index := m.selectedIndex(); index >= 0 && index < len(m.workspaces)-1 {
 				m.selectedWorkspace = m.workspaces[index+1].Name
-				m.scroll = 0
 			}
-		case "ctrl+up":
-			if m.consoleScroll > 0 {
-				m.consoleScroll--
-			}
-		case "ctrl+down":
-			m.consoleScroll++
-		case ":", "/", "enter", "o":
-			m.commandMode = true
-			m.commandInput = ""
-			m.historyIndex = len(m.commandHistory)
-		case "n":
-			m.commandMode = true
-			m.commandInput = "submit "
-			if selected := m.selected(); selected != nil {
-				m.commandInput += selected.Name + " "
-			}
-			m.historyIndex = len(m.commandHistory)
-		case "i":
-			m.commandMode = true
-			m.commandInput = "workspace import "
-			m.historyIndex = len(m.commandHistory)
-		case "a":
-			m.commandMode = true
-			m.commandInput = "secret set "
-			m.historyIndex = len(m.commandHistory)
-		case "y":
-			m.commandMode = true
-			m.commandInput = "approval approve "
-			m.historyIndex = len(m.commandHistory)
-		case "x":
-			m.commandMode = true
-			m.commandInput = "approval deny "
-			m.historyIndex = len(m.commandHistory)
-		case "p":
-			m.loading = true
-			return m, executeFactoryCommand([]string{"pause"})
-		case "u":
-			m.loading = true
-			return m, executeFactoryCommand([]string{"resume"})
-		case "?":
-			m.loading = true
-			return m, executeFactoryCommand([]string{"--help"})
-		case "ctrl+l", "esc":
+			m.syncViewport()
+			m.content.GotoTop()
+			return m, nil
+		case "ctrl+l":
 			m.commandOutput = ""
-			m.consoleScroll = 0
 			m.err = nil
-		case "r":
+			m.syncViewport()
+			return m, nil
+		case "ctrl+r":
 			m.loading = true
 			return m, fetchCmd(m.client)
-		default:
-			if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '4' {
-				m.tab = int(msg.String()[0] - '1')
-				m.scroll = 0
+		case "pgup", "pgdown", "ctrl+home", "ctrl+end":
+			var command tea.Cmd
+			m.content, command = m.content.Update(msg)
+			return m, command
+		case "up":
+			if m.historyIndex > 0 {
+				m.historyIndex--
+				m.setEditorValue(m.commandHistory[m.historyIndex])
 			}
+			return m, nil
+		case "down":
+			if m.historyIndex < len(m.commandHistory)-1 {
+				m.historyIndex++
+				m.setEditorValue(m.commandHistory[m.historyIndex])
+			} else {
+				m.historyIndex = len(m.commandHistory)
+				m.editor.Reset()
+			}
+			return m, nil
+		case "enter":
+			line := strings.TrimSpace(m.editor.Value())
+			args, err := parseCommandLine(line)
+			if err == nil {
+				err = validateFactoryCommand(args)
+			}
+			if err != nil {
+				m.commandOutput = err.Error()
+				m.syncViewport()
+				m.content.GotoBottom()
+				return m, nil
+			}
+			m.editor.Reset()
+			m.commandHistory = append(m.commandHistory, line)
+			m.historyIndex = len(m.commandHistory)
+			m.loading = true
+			if interactiveFactoryCommand(args) {
+				return m, interactiveFactoryProcess(args)
+			}
+			return m, executeFactoryCommand(args)
 		}
+		var command tea.Cmd
+		m.editor, command = m.editor.Update(msg)
+		return m, command
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.resize()
+		m.syncViewport()
 	case snapshotMsg:
 		m.loading = false
 		m.err = msg.err
@@ -487,6 +526,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedWorkspace = m.workspaces[0].Name
 			}
 		}
+		m.syncViewport()
 	case commandResultMsg:
 		m.loading = false
 		m.err = nil
@@ -494,11 +534,18 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil && result == "" {
 			result = msg.err.Error()
 		}
-		m.commandOutput = fmt.Sprintf("$ %s\n%s", clean(msg.command), result)
-		m.consoleScroll = len(strings.Split(m.commandOutput, "\n")) - 4
-		if m.consoleScroll < 0 {
-			m.consoleScroll = 0
+		entry := fmt.Sprintf("$ %s\n%s", clean(msg.command), result)
+		if m.commandOutput == "" {
+			m.commandOutput = entry
+		} else {
+			m.commandOutput += "\n\n" + entry
 		}
+		lines := strings.Split(m.commandOutput, "\n")
+		if len(lines) > 500 {
+			m.commandOutput = strings.Join(lines[len(lines)-500:], "\n")
+		}
+		m.syncViewport()
+		m.content.GotoBottom()
 		return m, fetchCmd(m.client)
 	case tickMsg:
 		if !m.loading {
@@ -671,7 +718,7 @@ func (m model) sidebar(maxLines int) string {
 		value.WriteString(lipgloss.NewStyle().Foreground(danger).Render("Catalog unavailable") + "\n")
 	}
 	if len(m.workspaces) == 0 {
-		value.WriteString("No workspaces\n\nPress i to import")
+		value.WriteString("No workspaces\n\nctrl+k to import")
 	}
 	available := maxLines - 7
 	if available < 1 {
@@ -700,7 +747,7 @@ func (m model) sidebar(maxLines int) string {
 	if end < len(m.workspaces) {
 		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("  ↓ more") + "\n")
 	}
-	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("[ / ] select\ni import\nn new objective"))
+	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("ctrl+p/n select\nctrl+k commands"))
 	return value.String()
 }
 
@@ -708,14 +755,14 @@ func (m model) settings() string {
 	var value strings.Builder
 	value.WriteString("RUNTIME\n")
 	fmt.Fprintf(&value, "  Name       %s\n  Purpose    %s\n  Storage    Azure Blob\n  Refresh    15 seconds\n\n", clean(m.factoryName), clean(m.purpose))
-	value.WriteString("MODELS\n  :models show\n  :models set ROLE PROVIDER/MODEL\n\nSECRETS (values hidden)\n")
+	value.WriteString("MODELS\n  models show\n  models set ROLE PROVIDER/MODEL\n\nSECRETS (values hidden)\n")
 	for _, item := range m.dashboard.Secrets {
 		fmt.Fprintf(&value, "  ● %-36s %s\n", clean(item.Name), clean(item.Updated))
 	}
 	if len(m.dashboard.Secrets) == 0 {
 		value.WriteString("  No secret metadata available\n")
 	}
-	value.WriteString("\nCAPABILITIES\n  Skills, MCP servers, scanners, ACP, and signed extensions\n  :extension verify MANIFEST ARTIFACT PUBLIC_KEY\n")
+	value.WriteString("\nCAPABILITIES\n  Skills, MCP servers, scanners, ACP, and signed extensions\n  extension verify MANIFEST ARTIFACT PUBLIC_KEY\n")
 	value.WriteString("\nRECENT SERVICE LOGS\n")
 	lines := strings.Split(clean(m.logs), "\n")
 	if len(lines) > 30 {
@@ -727,7 +774,7 @@ func (m model) settings() string {
 
 func (m model) body() string {
 	if m.tab < 3 && m.selected() == nil {
-		return "SELECT A WORKSPACE\n\nImport one with i, then select it from the left sidebar.\nObjectives and agents are scoped to the selected workspace."
+		return "SELECT A WORKSPACE\n\nOpen the command palette with ctrl+k and import one.\nObjectives and agents are scoped to the selected workspace."
 	}
 	switch m.tab {
 	case 0:
@@ -742,86 +789,83 @@ func (m model) body() string {
 }
 
 func (m model) View() string {
-	width := m.width
-	if width < 80 {
-		width = 80
-	}
-	header := lipgloss.NewStyle().Bold(true).Foreground(accent).Render(strings.ToUpper(clean(m.factoryName))) + "  " + lipgloss.NewStyle().Foreground(muted).Render(clean(m.purpose))
+	width, height := max(m.width, 1), max(m.height, 1)
+	headerText := strings.ToUpper(clean(m.factoryName))
 	if selected := m.selected(); selected != nil {
-		header += "  " + lipgloss.NewStyle().Foreground(blue).Render("/ "+clean(selected.Name))
+		headerText += "  / " + clean(selected.Name)
 	}
-	tabValues := []string{}
+	header := lipgloss.NewStyle().Width(width).Bold(true).Foreground(accent).Render(trim(headerText, width))
+	editorHeight := 4
+	if height < 18 {
+		editorHeight = 3
+	}
+	topHeight := max(height-editorHeight-2, 1)
+	leftWidth := width
+	rightWidth := 0
+	if width >= 90 {
+		leftWidth = width * 7 / 10
+		rightWidth = width - leftWidth
+	}
+
+	tabValues := make([]string, 0, len(tabs))
 	for index, value := range tabs {
-		style := lipgloss.NewStyle().Padding(0, 1).Foreground(muted)
+		style := lipgloss.NewStyle().Foreground(muted)
 		if index == m.tab {
-			style = style.Foreground(lipgloss.Color("#07130D")).Background(accent).Bold(true)
+			style = style.Foreground(accent).Bold(true)
 		}
-		tabValues = append(tabValues, style.Render(fmt.Sprintf("%d %s", index+1, value)))
+		tabValues = append(tabValues, style.Render(value))
 	}
-	tabLine := lipgloss.JoinHorizontal(lipgloss.Top, tabValues...)
-	consoleHeight := 0
-	if m.commandOutput != "" {
-		consoleHeight = 7
+	title := trim(strings.Join(tabValues, "  "), max(leftWidth-4, 1))
+	content := lipgloss.NewStyle().
+		Width(max(leftWidth-2, 1)).
+		Height(max(topHeight-2, 1)).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(border).
+		Padding(0, 1).
+		Render(title + "\n" + m.content.View())
+	mainArea := content
+	if rightWidth > 0 {
+		sidebar := lipgloss.NewStyle().
+			Width(max(rightWidth-2, 1)).
+			Height(max(topHeight-2, 1)).
+			Border(lipgloss.NormalBorder()).
+			BorderForeground(border).
+			Padding(0, 1).
+			Render(m.sidebar(topHeight - 2))
+		mainArea = lipgloss.JoinHorizontal(lipgloss.Top, content, sidebar)
 	}
-	mainHeight := m.height - 8 - consoleHeight
-	if mainHeight < 10 {
-		mainHeight = 10
+
+	editorTitle := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("COMMAND")
+	editor := lipgloss.NewStyle().
+		Width(max(width-2, 1)).
+		Height(max(editorHeight-2, 1)).
+		Border(lipgloss.NormalBorder()).
+		BorderForeground(accent).
+		Padding(0, 1).
+		Render(editorTitle + "  " + m.editor.View())
+	status := "ctrl+k commands  tab page  ctrl+p/n workspace  pgup/pgdn scroll  up/down history  ctrl+c quit"
+	if m.loading {
+		status = "Refreshing Factory state...  " + status
 	}
-	sidebarWidth := 26
-	contentWidth := width - sidebarWidth - 5
-	if contentWidth < 50 {
-		contentWidth = 50
+	if m.err != nil {
+		status = lipgloss.NewStyle().Foreground(danger).Render(trim(m.err.Error(), max(width-1, 1)))
 	}
-	lines := strings.Split(m.body(), "\n")
-	visible := mainHeight - 2
-	maxScroll := len(lines) - visible
-	if maxScroll < 0 {
-		maxScroll = 0
+	base := lipgloss.JoinVertical(lipgloss.Left, header, mainArea, editor, lipgloss.NewStyle().Width(width).Foreground(muted).Render(trim(status, width)))
+	if !m.showPalette {
+		return base
 	}
-	scroll := m.scroll
-	if scroll > maxScroll {
-		scroll = maxScroll
-	}
-	end := scroll + visible
-	if end > len(lines) {
-		end = len(lines)
-	}
-	sidebar := lipgloss.NewStyle().Width(sidebarWidth).Height(mainHeight).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1).Render(m.sidebar(mainHeight - 2))
-	content := lipgloss.NewStyle().Width(contentWidth).Height(mainHeight).Border(lipgloss.RoundedBorder()).BorderForeground(border).Padding(1, 2).Render(strings.Join(lines[scroll:end], "\n"))
-	main := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, content)
-	console := ""
-	if m.commandOutput != "" {
-		consoleLines := strings.Split(clean(m.commandOutput), "\n")
-		maxConsoleScroll := len(consoleLines) - 4
-		if maxConsoleScroll < 0 {
-			maxConsoleScroll = 0
+	var rows []string
+	rows = append(rows, lipgloss.NewStyle().Foreground(accent).Bold(true).Render("Commands"), "")
+	paletteWidth := min(54, max(width-8, 12))
+	for index, action := range paletteActions {
+		style := lipgloss.NewStyle().Width(paletteWidth).Padding(0, 1)
+		if index == m.paletteIndex {
+			style = style.Background(accent).Foreground(lipgloss.Color("#07130D")).Bold(true)
 		}
-		consoleScroll := m.consoleScroll
-		if consoleScroll > maxConsoleScroll {
-			consoleScroll = maxConsoleScroll
-		}
-		consoleEnd := consoleScroll + 4
-		if consoleEnd > len(consoleLines) {
-			consoleEnd = len(consoleLines)
-		}
-		console = lipgloss.NewStyle().Width(width-2).Height(5).Border(lipgloss.RoundedBorder()).BorderForeground(muted).Padding(0, 1).Render(fmt.Sprintf("CONSOLE · ctrl+↑/↓ scroll · ctrl+l clear  [%d-%d/%d]\n%s", consoleScroll+1, consoleEnd, len(consoleLines), strings.Join(consoleLines[consoleScroll:consoleEnd], "\n")))
+		rows = append(rows, style.Render(trim(action.title+"  "+action.description, max(paletteWidth-2, 1))))
 	}
-	prompt := "Press : to enter a Factory command  ·  n submit  ·  i import  ·  ? help  ·  q quit"
-	if m.commandMode {
-		prompt = lipgloss.NewStyle().Foreground(accent).Bold(true).Render("› ") + clean(m.commandInput) + "█"
-	} else if m.loading {
-		prompt = "Refreshing Factory state…"
-	}
-	if m.err != nil && !m.commandMode {
-		prompt = lipgloss.NewStyle().Foreground(danger).Render(m.err.Error())
-	}
-	commandLine := lipgloss.NewStyle().Width(width-2).Height(1).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(0, 1).Render(prompt)
-	parts := []string{header, tabLine, main}
-	if console != "" {
-		parts = append(parts, console)
-	}
-	parts = append(parts, commandLine)
-	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	popup := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(1, 2).Render(strings.Join(rows, "\n"))
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, popup)
 }
 
 func main() {
@@ -839,7 +883,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	application := model{client: client, factoryName: config["FACTORY_NAME"], purpose: config["FACTORY_PURPOSE"], loading: true}
+	application := newModel(client, config["FACTORY_NAME"], config["FACTORY_PURPOSE"])
 	if application.factoryName == "" {
 		application.factoryName = "Factory AI"
 	}
