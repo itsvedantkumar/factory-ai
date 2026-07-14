@@ -96,7 +96,7 @@ factory ui
 | `factory secret set NAME` | Store a credential in global Key Vault |
 | `factory github connect ORG` | Connect GitHub Enterprise credentials |
 
-Inside `factory ui`, the active workspace appears in the context sidebar; Dashboard, Objectives, and Agents are scoped to it. The interface follows the proven MIT-licensed OpenCode Go TUI model: a 70/30 detail/context split, persistent bottom command editor, viewport, and modal command palette. Type any Factory command without the `factory` prefix and press Enter. Use `Ctrl+K` for actions, `Ctrl+P/N` for workspaces, Tab for pages, `↑/↓` for command history, `PgUp/PgDn` for output, and `Ctrl+C` to quit.
+Inside `factory ui`, the active workspace appears in the context sidebar; Dashboard, Objectives, and Agents are scoped to it. The interface follows the proven MIT-licensed OpenCode Go TUI model: a 70/30 detail/context split, persistent bottom command editor, contextual autocomplete, viewport, and modal command palette. Click workspace, tab, and agent rows directly. Use `Ctrl+K` for actions, `Ctrl+W` for workspace focus, `Ctrl+G` for agent focus, `Tab` or Enter for completions, `PgUp/PgDn` for output, and `Ctrl+C` to quit. Selecting an agent shows its role, model, objective, phase, current activity/tool, update time, retries, and errors.
 
 ## Architecture
 

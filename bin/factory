@@ -20,24 +20,60 @@ remote() {
 
 usage() {
   printf '%s\n' \
-    'Factory AI operator console' \
-    'Usage: factory <command>' \
-    '  setup' \
-    '  configure models' \
-    '  models show | set ROLE PROVIDER/MODEL | reset ROLE' \
-    '  acp REQUEST.json | extension verify MANIFEST ARTIFACT PUBLIC_KEY' \
-    '  github status | connect ORG | transfer OWNER/REPO ORG' \
-    '  telegram status | configure | start | stop' \
-    '  workspace list | import PATH|OWNER/REPO [--name NAME] | show NAME | remove NAME' \
-    '  submit <workspace|owner/repo> <objective>' \
-    '  update check | now | status | enable | disable' \
-    '  approval approve | deny OBJECTIVE_ID APPROVAL_ID REASON' \
-    '  issue <owner/repo> <number>' \
-    '  ui' \
-    '  init <local-project-path>' \
-    '  secret list | set NAME | copy NAME | delete NAME' \
-    '  dashboard | status | queue | report | logs | doctor' \
-    '  pause | resume'
+    'Factory AI' \
+    'Usage: factory COMMAND [ARGUMENTS]' \
+    '' \
+    'GET STARTED' \
+    '  ui                         Open the interactive operator console' \
+    '  setup                      Deploy or repair Factory AI on Azure' \
+    '  doctor                     Check local and Azure configuration' \
+    '' \
+    'WORK' \
+    '  workspace list             List imported workspaces' \
+    '  workspace import SOURCE    Import a path or owner/repository' \
+    '  workspace show NAME        Show workspace details' \
+    '  workspace remove NAME      Remove a workspace from the catalog' \
+    '  submit WORKSPACE OBJECTIVE Start a new objective' \
+    '  issue OWNER/REPO NUMBER     Process a GitHub issue' \
+    '  init PATH                  Add Factory instructions to a project' \
+    '' \
+    'OPERATE' \
+    '  status                     Show runtime status' \
+    '  dashboard                  Print the operator dashboard' \
+    '  queue                      Show queue state' \
+    '  logs                       Show recent service logs' \
+    '  report                     Show the latest operator report' \
+    '  pause                      Stop dispatching new work' \
+    '  resume                     Resume work dispatch' \
+    '' \
+    'CONFIGURE' \
+    '  models show                Show role-to-model routes' \
+    '  models set ROLE ROUTE      Set a role model route' \
+    '  models reset ROLE          Restore a role model route' \
+    '  secret list                List secret metadata' \
+    '  secret set NAME            Store a secret in Key Vault' \
+    '  secret copy NAME           Copy a secret value to clipboard' \
+    '  secret delete NAME         Delete a secret' \
+    '  update check               Check for a newer release' \
+    '  update now                 Install and deploy the latest release' \
+    '  update status              Show automatic updater status' \
+    '  update enable              Enable automatic updates' \
+    '  update disable             Disable automatic updates' \
+    '' \
+    'INTEGRATE' \
+    '  github status              Show GitHub connection status' \
+    '  github connect ORG         Connect a GitHub organization' \
+    '  github transfer REPO ORG   Transfer a repository' \
+    '  telegram status            Show Telegram integration status' \
+    '  telegram configure         Configure Telegram control' \
+    '  telegram start             Start Telegram control' \
+    '  telegram stop              Stop Telegram control' \
+    '  approval approve ...       Approve a release gate' \
+    '  approval deny ...          Deny a release gate' \
+    '  acp REQUEST.json           Run an ACP request' \
+    '  extension verify ...       Verify a signed extension' \
+    '' \
+    'TUI: Ctrl+K commands, Ctrl+W workspaces, Ctrl+G agents, click rows.'
 }
 
 command=${1:-ui}

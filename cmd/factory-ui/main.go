@@ -134,6 +134,15 @@ type model struct {
 	content           viewport.Model
 	showPalette       bool
 	paletteIndex      int
+	completionIndex   int
+	workspaceFocus    bool
+	agentFocus        bool
+	selectedAgent     int
+}
+
+type agentRecord struct {
+	objective objective
+	task      task
 }
 
 type paletteAction struct {
@@ -151,6 +160,45 @@ var paletteActions = []paletteAction{
 	{title: "Show models", description: "Inspect active role and model routes", prefix: "models show"},
 	{title: "Pause factory", description: "Stop dispatching new work", prefix: "pause"},
 	{title: "Resume factory", description: "Resume work dispatch", prefix: "resume"},
+}
+
+type completion struct {
+	value       string
+	description string
+}
+
+var commandCompletions = []completion{
+	{value: "help", description: "Show the command reference"},
+	{value: "setup", description: "Deploy or repair Factory AI"},
+	{value: "configure models", description: "Configure model providers"},
+	{value: "workspace list", description: "List imported workspaces"},
+	{value: "workspace import ", description: "Import a path or owner/repository"},
+	{value: "workspace show ", description: "Show workspace details"},
+	{value: "workspace remove ", description: "Remove a workspace"},
+	{value: "models show", description: "Show model routes"},
+	{value: "models set ", description: "Set a role model"},
+	{value: "models reset ", description: "Reset a role model"},
+	{value: "secret list", description: "List secret metadata"},
+	{value: "secret set ", description: "Set a secret"},
+	{value: "secret copy ", description: "Copy a secret"},
+	{value: "secret delete ", description: "Delete a secret"},
+	{value: "approval approve ", description: "Approve a release gate"},
+	{value: "approval deny ", description: "Deny a release gate"},
+	{value: "github status", description: "Show GitHub connection"},
+	{value: "github connect ", description: "Connect a GitHub organization"},
+	{value: "telegram status", description: "Show Telegram integration"},
+	{value: "telegram configure", description: "Configure Telegram control"},
+	{value: "update check", description: "Check for updates"},
+	{value: "update now", description: "Install and deploy the latest release"},
+	{value: "update status", description: "Show updater status"},
+	{value: "dashboard", description: "Refresh dashboard data"},
+	{value: "status", description: "Show runtime status"},
+	{value: "queue", description: "Show queue state"},
+	{value: "report", description: "Create an operator report"},
+	{value: "logs", description: "Show service logs"},
+	{value: "doctor", description: "Run diagnostics"},
+	{value: "pause", description: "Pause dispatch"},
+	{value: "resume", description: "Resume dispatch"},
 }
 
 var (
@@ -362,21 +410,174 @@ func newModel(client *azblob.Client, factoryName, purpose string) model {
 	}
 }
 
-func (m *model) resize() {
+func (m model) completions() []completion {
+	input := strings.ToLower(m.editor.Value())
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	candidates := append([]completion(nil), commandCompletions...)
+	for _, item := range m.workspaces {
+		candidates = append(candidates,
+			completion{value: "submit " + item.Name + " ", description: "Submit an objective"},
+			completion{value: "workspace show " + item.Name, description: "Show workspace details"},
+			completion{value: "workspace remove " + item.Name, description: "Remove workspace"},
+		)
+	}
+	result := make([]completion, 0, 5)
+	for _, candidate := range candidates {
+		candidateValue := strings.ToLower(candidate.value)
+		if candidateValue != input && strings.HasPrefix(candidateValue, input) {
+			result = append(result, candidate)
+			if len(result) == 5 {
+				break
+			}
+		}
+	}
+	return result
+}
+
+func (m model) editorHeight() int {
+	if count := len(m.completions()); count > 0 {
+		return 4 + min(count, 5)
+	}
+	return 4
+}
+
+func (m model) layoutDimensions() (editorHeight, topHeight, leftWidth, rightWidth int) {
 	width, height := max(m.width, 1), max(m.height, 1)
-	editorHeight := 4
-	if height < 18 {
+	editorHeight = m.editorHeight()
+	if height < 18 && editorHeight == 4 {
 		editorHeight = 3
 	}
-	topHeight := max(height-editorHeight-2, 1)
-	contentWidth := width
+	topHeight = max(height-editorHeight-2, 1)
+	leftWidth = width
 	if width >= 90 {
-		contentWidth = width * 7 / 10
+		leftWidth = width * 7 / 10
+		rightWidth = width - leftWidth
 	}
+	return
+}
+
+func (m model) workspaceWindow(maxLines int) (int, int) {
+	available := max(maxLines-7, 1)
+	start := 0
+	if index := m.selectedIndex(); index >= available {
+		start = index - available + 1
+	}
+	end := min(start+available, len(m.workspaces))
+	return start, end
+}
+
+func (m *model) selectWorkspace(index int) {
+	if index < 0 || index >= len(m.workspaces) {
+		return
+	}
+	m.selectedWorkspace = m.workspaces[index].Name
+	m.selectedAgent = 0
+	m.scroll = 0
+	m.syncViewport()
+	m.content.GotoTop()
+}
+
+func (m *model) ensureAgentVisible() {
+	line := 2 + m.selectedAgent*2
+	if line < m.content.YOffset {
+		m.content.SetYOffset(line)
+	} else if line+1 >= m.content.YOffset+m.content.Height {
+		m.content.SetYOffset(line - m.content.Height + 2)
+	}
+}
+
+func (m *model) handleMouse(msg tea.MouseMsg) tea.Cmd {
+	editorHeight, topHeight, leftWidth, rightWidth := m.layoutDimensions()
+	if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
+		var command tea.Cmd
+		m.content, command = m.content.Update(msg)
+		return command
+	}
+	if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
+		return nil
+	}
+	if msg.Y == 2 && msg.X < leftWidth {
+		position := 2
+		for index, label := range tabs {
+			end := position + lipgloss.Width(label)
+			if msg.X >= position && msg.X < end {
+				m.tab = index
+				m.agentFocus = false
+				m.syncViewport()
+				m.content.GotoTop()
+				return nil
+			}
+			position = end + 2
+		}
+	}
+	if rightWidth > 0 && msg.X >= leftWidth && msg.Y >= 4 && msg.Y < 1+topHeight {
+		start, end := m.workspaceWindow(topHeight - 2)
+		row := msg.Y - 4
+		if m.workspaceErr != "" {
+			row--
+		}
+		if start > 0 {
+			row--
+		}
+		index := start + row
+		if row >= 0 && index < end {
+			m.selectWorkspace(index)
+			m.workspaceFocus = true
+			m.agentFocus = false
+			m.editor.Blur()
+		}
+		return nil
+	}
+	if m.tab == 2 && msg.X < leftWidth && msg.Y >= 3 && msg.Y < 1+topHeight {
+		bodyLine := m.content.YOffset + msg.Y - 3
+		if bodyLine >= 2 {
+			index := (bodyLine - 2) / 2
+			if index < len(m.agentRecords()) {
+				m.selectedAgent = index
+				m.agentFocus = true
+				m.workspaceFocus = false
+				m.editor.Blur()
+				m.syncViewport()
+			}
+		}
+		return nil
+	}
+	if msg.Y >= 1+topHeight && msg.Y < 1+topHeight+editorHeight {
+		m.workspaceFocus = false
+		m.agentFocus = false
+		return m.editor.Focus()
+	}
+	return nil
+}
+
+func (m *model) acceptCompletion() bool {
+	items := m.completions()
+	if len(items) == 0 {
+		return false
+	}
+	if m.completionIndex >= len(items) {
+		m.completionIndex = 0
+	}
+	value := items[m.completionIndex].value
+	if value == m.editor.Value() {
+		return false
+	}
+	m.setEditorValue(value)
+	m.completionIndex = 0
+	m.resize()
+	m.syncViewport()
+	return true
+}
+
+func (m *model) resize() {
+	width := max(m.width, 1)
+	_, topHeight, contentWidth, _ := m.layoutDimensions()
 	m.content.Width = max(contentWidth-4, 1)
 	m.content.Height = max(topHeight-3, 1)
 	m.editor.SetWidth(max(width-13, 1))
-	m.editor.SetHeight(max(editorHeight-3, 1))
+	m.editor.SetHeight(1)
 }
 
 func (m *model) syncViewport() {
@@ -396,12 +597,18 @@ func (m *model) setEditorValue(value string) {
 	m.editor.SetValue(value)
 	m.editor.CursorEnd()
 	m.editor.Focus()
+	m.completionIndex = 0
 }
 
 func (m model) Init() tea.Cmd { return tea.Batch(fetchCmd(m.client), tickCmd(), textarea.Blink) }
 
 func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
+	case tea.MouseMsg:
+		if m.showPalette {
+			return m, nil
+		}
+		return m, m.handleMouse(msg)
 	case tea.KeyMsg:
 		if m.showPalette {
 			switch msg.String() {
@@ -420,6 +627,48 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter":
 				m.setEditorValue(paletteActions[m.paletteIndex].prefix)
 				m.showPalette = false
+				m.resize()
+				m.syncViewport()
+			}
+			return m, nil
+		}
+		if m.agentFocus {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "enter", "ctrl+g":
+				m.agentFocus = false
+				return m, m.editor.Focus()
+			case "up", "k":
+				if m.selectedAgent > 0 {
+					m.selectedAgent--
+					m.syncViewport()
+					m.ensureAgentVisible()
+				}
+			case "down", "j":
+				if m.selectedAgent < len(m.agentRecords())-1 {
+					m.selectedAgent++
+					m.syncViewport()
+					m.ensureAgentVisible()
+				}
+			case "pgup", "pgdown", "home", "end":
+				var command tea.Cmd
+				m.content, command = m.content.Update(msg)
+				return m, command
+			}
+			return m, nil
+		}
+		if m.workspaceFocus {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "enter", "ctrl+w":
+				m.workspaceFocus = false
+				return m, m.editor.Focus()
+			case "up", "k":
+				m.selectWorkspace(m.selectedIndex() - 1)
+			case "down", "j":
+				m.selectWorkspace(m.selectedIndex() + 1)
 			}
 			return m, nil
 		}
@@ -430,6 +679,31 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.showPalette = true
 			m.paletteIndex = 0
 			return m, nil
+		case "ctrl+w":
+			_, _, _, rightWidth := m.layoutDimensions()
+			if len(m.workspaces) > 0 && rightWidth > 0 {
+				m.workspaceFocus = true
+				m.editor.Blur()
+			}
+			return m, nil
+		case "ctrl+g":
+			if m.tab == 2 && len(m.agentRecords()) > 0 {
+				m.agentFocus = true
+				m.editor.Blur()
+			}
+			return m, nil
+		case "tab":
+			if m.acceptCompletion() {
+				return m, nil
+			}
+			if m.tab < len(tabs)-1 {
+				m.tab++
+			} else {
+				m.tab = 0
+			}
+			m.syncViewport()
+			m.content.GotoTop()
+			return m, nil
 		case "ctrl+left":
 			if m.tab > 0 {
 				m.tab--
@@ -437,7 +711,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.syncViewport()
 			m.content.GotoTop()
 			return m, nil
-		case "ctrl+right", "tab":
+		case "ctrl+right":
 			if m.tab < len(tabs)-1 {
 				m.tab++
 			} else {
@@ -473,12 +747,24 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.content, command = m.content.Update(msg)
 			return m, command
 		case "up":
+			if items := m.completions(); len(items) > 0 {
+				if m.completionIndex > 0 {
+					m.completionIndex--
+				}
+				return m, nil
+			}
 			if m.historyIndex > 0 {
 				m.historyIndex--
 				m.setEditorValue(m.commandHistory[m.historyIndex])
 			}
 			return m, nil
 		case "down":
+			if items := m.completions(); len(items) > 0 {
+				if m.completionIndex < len(items)-1 {
+					m.completionIndex++
+				}
+				return m, nil
+			}
 			if m.historyIndex < len(m.commandHistory)-1 {
 				m.historyIndex++
 				m.setEditorValue(m.commandHistory[m.historyIndex])
@@ -488,6 +774,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
+			if m.acceptCompletion() {
+				return m, nil
+			}
 			line := strings.TrimSpace(m.editor.Value())
 			args, err := parseCommandLine(line)
 			if err == nil {
@@ -510,6 +799,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var command tea.Cmd
 		m.editor, command = m.editor.Update(msg)
+		m.completionIndex = 0
+		m.resize()
+		m.syncViewport()
 		return m, command
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -526,6 +818,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedWorkspace = m.workspaces[0].Name
 			}
 		}
+		m.resize()
 		m.syncViewport()
 	case commandResultMsg:
 		m.loading = false
@@ -677,36 +970,71 @@ func (m model) objectives() string {
 	return value.String()
 }
 
-func (m model) agents() string {
-	var value strings.Builder
+func (m model) agentRecords() []agentRecord {
+	records := []agentRecord{}
 	for _, item := range m.visibleObjectives() {
-		for _, task := range item.Tasks {
-			if task.State == "succeeded" {
-				continue
-			}
-			state := task.State
-			if task.Stale {
-				state = "stale"
-			}
-			phase := "waiting for activity"
-			if task.Activity != nil {
-				phase = task.Activity.Phase
-				if phase == "" {
-					phase = task.Activity.Type
-				}
-				phase += " · " + task.Activity.OccurredAt
-				if task.Retries > 0 {
-					phase += fmt.Sprintf(" · %d retries", task.Retries)
-				}
-			}
-			fmt.Fprintf(&value, "%s  %s  %s\n  %s\n  %s\n\n", badge(state), clean(task.Role), clean(task.Model), trim(task.Title, 90), lipgloss.NewStyle().Foreground(muted).Render(clean(phase)))
-			if task.LastError != "" {
-				fmt.Fprintf(&value, "  %s\n\n", lipgloss.NewStyle().Foreground(danger).Render(clean(task.LastError)))
-			}
+		for _, agent := range item.Tasks {
+			records = append(records, agentRecord{objective: item, task: agent})
 		}
 	}
-	if value.Len() == 0 {
-		return "No active agents."
+	return records
+}
+
+func (m model) agents() string {
+	records := m.agentRecords()
+	if len(records) == 0 {
+		return "AGENTS\n\nNo agents for this workspace."
+	}
+	selected := min(max(m.selectedAgent, 0), len(records)-1)
+	var value strings.Builder
+	value.WriteString(lipgloss.NewStyle().Bold(true).Render("AGENTS") + "\n\n")
+	for index, record := range records {
+		state := record.task.State
+		if record.task.Stale {
+			state = "stale"
+		}
+		marker := "  "
+		style := lipgloss.NewStyle()
+		if index == selected {
+			marker = "› "
+			style = style.Foreground(accent).Bold(true)
+		}
+		phase := "waiting"
+		if record.task.Activity != nil {
+			phase = record.task.Activity.Phase
+			if phase == "" {
+				phase = record.task.Activity.Type
+			}
+		}
+		fmt.Fprintf(&value, "%s%s  %s  %s\n", marker, badge(state), style.Render(clean(record.task.Role)), clean(record.task.Model))
+		fmt.Fprintf(&value, "  %s · %s\n", trim(record.task.Title, 70), clean(phase))
+	}
+
+	record := records[selected]
+	agent := record.task
+	state := agent.State
+	if agent.Stale {
+		state = "stale"
+	}
+	phase, activityType, tool, occurredAt, activityError := "waiting for activity", "-", "-", "-", ""
+	if agent.Activity != nil {
+		phase = agent.Activity.Phase
+		if phase == "" {
+			phase = agent.Activity.Type
+		}
+		activityType = agent.Activity.Type
+		tool = agent.Activity.Tool
+		occurredAt = agent.Activity.OccurredAt
+		activityError = agent.Activity.LastError
+	}
+	fmt.Fprintf(&value, "\n%s\n\n", lipgloss.NewStyle().Bold(true).Foreground(accent).Render("SELECTED AGENT"))
+	fmt.Fprintf(&value, "%s\n\nObjective  %s\nTask ID    %s\nRole       %s\nModel      %s\nState      %s\nPhase      %s\nActivity   %s\nTool       %s\nUpdated    %s\nRetries    %d\n",
+		clean(agent.Title), trim(record.objective.Objective, 90), clean(agent.ID), clean(agent.Role), clean(agent.Model), badge(state), clean(phase), clean(activityType), clean(tool), clean(occurredAt), agent.Retries)
+	if agent.LastError != "" {
+		fmt.Fprintf(&value, "Last error %s\n", lipgloss.NewStyle().Foreground(danger).Render(clean(agent.LastError)))
+	}
+	if activityError != "" && activityError != agent.LastError {
+		fmt.Fprintf(&value, "Activity error %s\n", lipgloss.NewStyle().Foreground(danger).Render(clean(activityError)))
 	}
 	return value.String()
 }
@@ -720,18 +1048,7 @@ func (m model) sidebar(maxLines int) string {
 	if len(m.workspaces) == 0 {
 		value.WriteString("No workspaces\n\nctrl+k to import")
 	}
-	available := maxLines - 7
-	if available < 1 {
-		available = 1
-	}
-	start := 0
-	if index := m.selectedIndex(); index >= available {
-		start = index - available + 1
-	}
-	end := start + available
-	if end > len(m.workspaces) {
-		end = len(m.workspaces)
-	}
+	start, end := m.workspaceWindow(maxLines)
 	if start > 0 {
 		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("  ↑ more") + "\n")
 	}
@@ -747,7 +1064,7 @@ func (m model) sidebar(maxLines int) string {
 	if end < len(m.workspaces) {
 		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("  ↓ more") + "\n")
 	}
-	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("ctrl+p/n select\nctrl+k commands"))
+	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("click or ctrl+w focus\n↑/↓ select"))
 	return value.String()
 }
 
@@ -795,17 +1112,7 @@ func (m model) View() string {
 		headerText += "  / " + clean(selected.Name)
 	}
 	header := lipgloss.NewStyle().Width(width).Bold(true).Foreground(accent).Render(trim(headerText, width))
-	editorHeight := 4
-	if height < 18 {
-		editorHeight = 3
-	}
-	topHeight := max(height-editorHeight-2, 1)
-	leftWidth := width
-	rightWidth := 0
-	if width >= 90 {
-		leftWidth = width * 7 / 10
-		rightWidth = width - leftWidth
-	}
+	editorHeight, topHeight, leftWidth, rightWidth := m.layoutDimensions()
 
 	tabValues := make([]string, 0, len(tabs))
 	for index, value := range tabs {
@@ -816,34 +1123,55 @@ func (m model) View() string {
 		tabValues = append(tabValues, style.Render(value))
 	}
 	title := trim(strings.Join(tabValues, "  "), max(leftWidth-4, 1))
+	contentBorder := border
+	if m.agentFocus {
+		contentBorder = accent
+	}
 	content := lipgloss.NewStyle().
 		Width(max(leftWidth-2, 1)).
 		Height(max(topHeight-2, 1)).
 		Border(lipgloss.NormalBorder()).
-		BorderForeground(border).
+		BorderForeground(contentBorder).
 		Padding(0, 1).
 		Render(title + "\n" + m.content.View())
 	mainArea := content
 	if rightWidth > 0 {
+		sidebarBorder := border
+		if m.workspaceFocus {
+			sidebarBorder = accent
+		}
 		sidebar := lipgloss.NewStyle().
 			Width(max(rightWidth-2, 1)).
 			Height(max(topHeight-2, 1)).
 			Border(lipgloss.NormalBorder()).
-			BorderForeground(border).
+			BorderForeground(sidebarBorder).
 			Padding(0, 1).
 			Render(m.sidebar(topHeight - 2))
 		mainArea = lipgloss.JoinHorizontal(lipgloss.Top, content, sidebar)
 	}
 
 	editorTitle := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("COMMAND")
+	editorRows := make([]string, 0, 6)
+	items := m.completions()
+	for index, item := range items {
+		marker := "  "
+		style := lipgloss.NewStyle().Foreground(muted)
+		if index == m.completionIndex {
+			marker = "› "
+			style = style.Foreground(accent).Bold(true)
+		}
+		line := marker + item.value + "  " + item.description
+		editorRows = append(editorRows, style.Render(trim(line, max(width-6, 1))))
+	}
+	editorRows = append(editorRows, editorTitle+"  "+m.editor.View())
 	editor := lipgloss.NewStyle().
 		Width(max(width-2, 1)).
 		Height(max(editorHeight-2, 1)).
 		Border(lipgloss.NormalBorder()).
 		BorderForeground(accent).
 		Padding(0, 1).
-		Render(editorTitle + "  " + m.editor.View())
-	status := "ctrl+k commands  tab page  ctrl+p/n workspace  pgup/pgdn scroll  up/down history  ctrl+c quit"
+		Render(strings.Join(editorRows, "\n"))
+	status := "tab/enter complete  ctrl+k commands  ctrl+w workspaces  ctrl+g agents  click rows  pgup/pgdn"
 	if m.loading {
 		status = "Refreshing Factory state...  " + status
 	}
@@ -890,7 +1218,7 @@ func main() {
 	if application.purpose == "" {
 		application.purpose = "Ship secure reviewed software continuously"
 	}
-	if _, err := tea.NewProgram(application, tea.WithAltScreen()).Run(); err != nil {
+	if _, err := tea.NewProgram(application, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

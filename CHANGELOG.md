@@ -4,6 +4,17 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-07-14
+
+### Added
+
+- Added contextual command and workspace autocomplete with inline suggestions and keyboard acceptance.
+- Added mouse and keyboard workspace selection, clickable tabs and agents, and detailed per-agent activity inspection.
+
+### Changed
+
+- Reorganized `factory help` into a concise, grouped command reference with descriptions and TUI controls.
+
 ## [2.2.0] - 2026-07-14
 
 ### Changed

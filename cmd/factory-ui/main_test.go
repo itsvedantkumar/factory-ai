@@ -79,6 +79,161 @@ func TestCommandHistoryUsesArrowKeys(t *testing.T) {
 	}
 }
 
+func TestEditorShowsAndAcceptsCommandCompletions(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 100, 30
+	current.resize()
+	for _, character := range "work" {
+		updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{character}})
+		current = updated.(model)
+	}
+	if rendered := current.View(); !strings.Contains(rendered, "workspace list") {
+		t.Fatalf("matching command completion is not visible: %q", rendered)
+	}
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyTab})
+	current = updated.(model)
+	if current.editor.Value() != "workspace list" {
+		t.Fatalf("tab did not accept completion: %q", current.editor.Value())
+	}
+}
+
+func TestEditorCompletesWorkspaceArguments(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "alpha"}, {Name: "beta"}}
+	current.width, current.height = 100, 30
+	current.editor.SetValue("submit b")
+	current.resize()
+	if rendered := current.View(); !strings.Contains(rendered, "submit beta") {
+		t.Fatalf("workspace completion is not visible: %q", rendered)
+	}
+	updated, command := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if command != nil || current.editor.Value() != "submit beta " {
+		t.Fatalf("enter did not accept workspace completion: %q", current.editor.Value())
+	}
+}
+
+func TestWorkspaceCanBeSelectedByMouseAndKeyboardFocus(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 100, 30
+	current.workspaces = []workspace{{Name: "alpha"}, {Name: "beta"}}
+	current.selectedWorkspace = "alpha"
+	current.resize()
+	updated, _ := current.Update(tea.MouseMsg{X: 75, Y: 5, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	current = updated.(model)
+	if current.selectedWorkspace != "beta" {
+		t.Fatalf("mouse did not select workspace: %q", current.selectedWorkspace)
+	}
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyUp})
+	current = updated.(model)
+	if current.selectedWorkspace != "alpha" {
+		t.Fatalf("focused keyboard navigation did not select workspace: %q", current.selectedWorkspace)
+	}
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	current = updated.(model)
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyDown})
+	current = updated.(model)
+	if current.selectedWorkspace != "beta" {
+		t.Fatalf("focused keyboard navigation did not select workspace: %q", current.selectedWorkspace)
+	}
+}
+
+func TestScrolledWorkspaceClickAccountsForMoreIndicator(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 100, 20
+	for index := 0; index < 10; index++ {
+		current.workspaces = append(current.workspaces, workspace{Name: fmt.Sprintf("workspace-%d", index)})
+	}
+	current.selectedWorkspace = "workspace-7"
+	current.resize()
+	current.syncViewport()
+	updated, _ := current.Update(tea.MouseMsg{X: 75, Y: 6, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	current = updated.(model)
+	if current.selectedWorkspace != "workspace-4" {
+		t.Fatalf("scrolled click selected wrong workspace: %q", current.selectedWorkspace)
+	}
+}
+
+func TestPaletteBlocksMouseAndNarrowLayoutCannotFocusHiddenSidebar(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 100, 30
+	current.workspaces = []workspace{{Name: "alpha"}, {Name: "beta"}}
+	current.selectedWorkspace = "alpha"
+	current.showPalette = true
+	updated, _ := current.Update(tea.MouseMsg{X: 75, Y: 5, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	current = updated.(model)
+	if current.selectedWorkspace != "alpha" {
+		t.Fatalf("palette leaked mouse event to workspace: %q", current.selectedWorkspace)
+	}
+	current.showPalette = false
+	current.width = 80
+	current.resize()
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	current = updated.(model)
+	if !current.editor.Focused() {
+		t.Fatal("hidden workspace sidebar captured focus")
+	}
+}
+
+func TestTabsAndAgentsCanBeClickedForDetailedActivity(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 100, 30
+	current.workspaces = []workspace{{Name: "app", Repository: "acme/app"}}
+	current.selectedWorkspace = "app"
+	first := task{ID: "first", Role: "builder", Title: "First agent", Model: "model-a", State: "running"}
+	second := task{ID: "second", Role: "tester", Title: "Second agent", Model: "model-b", State: "failed", Retries: 2, LastError: "tests failed"}
+	second.Activity = &activity{Type: "tool", Tool: "shell", Phase: "running tests", OccurredAt: "now", RetryCount: 2, LastError: "exit 1"}
+	current.dashboard.Objectives = []objective{{ID: "objective", Objective: "Ship it", Repository: "acme/app", Tasks: []task{first, second}}}
+	current.resize()
+	current.syncViewport()
+	updated, _ := current.Update(tea.MouseMsg{X: 26, Y: 2, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	current = updated.(model)
+	if current.tab != 2 {
+		t.Fatalf("mouse did not select Agents tab: %d", current.tab)
+	}
+	updated, _ = current.Update(tea.MouseMsg{X: 10, Y: 7, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	current = updated.(model)
+	rendered := current.agents()
+	for _, expected := range []string{"SELECTED AGENT", "Second agent", "running tests", "shell", "tests failed"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("agent detail missing %q: %q", expected, rendered)
+		}
+	}
+}
+
+func TestFocusedAgentNavigationKeepsSelectionVisible(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 100, 20
+	current.workspaces = []workspace{{Name: "app", Repository: "acme/app"}}
+	current.selectedWorkspace = "app"
+	item := objective{ID: "objective", Repository: "acme/app"}
+	for index := 0; index < 20; index++ {
+		item.Tasks = append(item.Tasks, task{ID: fmt.Sprint(index), Role: "builder", Title: fmt.Sprintf("Agent %d", index), State: "running"})
+	}
+	current.dashboard.Objectives = []objective{item}
+	current.tab = 2
+	current.resize()
+	current.syncViewport()
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyCtrlG})
+	current = updated.(model)
+	for range 15 {
+		updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyDown})
+		current = updated.(model)
+	}
+	selectedLine := 2 + current.selectedAgent*2
+	if selectedLine < current.content.YOffset || selectedLine >= current.content.YOffset+current.content.Height {
+		t.Fatalf("selected agent line %d is outside viewport %d-%d", selectedLine, current.content.YOffset, current.content.YOffset+current.content.Height)
+	}
+	before := current.content.YOffset
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	current = updated.(model)
+	if current.content.YOffset >= before {
+		t.Fatal("agent focus swallowed viewport scrolling")
+	}
+}
+
 func TestParseCommandLineSupportsQuotesAndFactoryPrefix(t *testing.T) {
 	args, err := parseCommandLine(`factory submit smoke "add focused tests"`)
 	if err != nil {
@@ -235,6 +390,13 @@ func TestInterfaceFitsNarrowTerminalsAndPalette(t *testing.T) {
 			if lipgloss.Width(rendered) > current.width || lipgloss.Height(rendered) > current.height {
 				t.Fatalf("rendered %dx%d exceeds terminal %dx%d (palette=%v editor=%dx%d content=%dx%d)", lipgloss.Width(rendered), lipgloss.Height(rendered), current.width, current.height, palette, lipgloss.Width(current.editor.View()), lipgloss.Height(current.editor.View()), lipgloss.Width(current.content.View()), lipgloss.Height(current.content.View()))
 			}
+		}
+		current.showPalette = false
+		current.editor.SetValue("w")
+		current.resize()
+		rendered := current.View()
+		if lipgloss.Width(rendered) > current.width || lipgloss.Height(rendered) > current.height {
+			t.Fatalf("autocomplete rendered %dx%d in terminal %dx%d", lipgloss.Width(rendered), lipgloss.Height(rendered), current.width, current.height)
 		}
 	}
 }
