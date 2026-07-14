@@ -48,3 +48,20 @@ test("workspace import removes a new catalog entry when project initialization f
   await assert.rejects(() => runWorkspaceCLI(["import", "acme/app"], { catalog, scheduler: {}, initialize: async () => { throw new Error("template failed"); } }), /template failed/);
   assert.deepEqual(calls, [["remove", "app"]]);
 });
+
+test("workspace import reports distinct progress stages before returning", async () => {
+  const stages = [];
+  const catalog = {
+    list: async () => [],
+    import: async () => ({ name: "app", repository: "acme/app", localPath: "/tmp/app" }),
+  };
+  const result = await runWorkspaceCLI(["import", "acme/app"], {
+    catalog,
+    scheduler: {},
+    initialize: async () => {},
+    progress: (event) => stages.push(event),
+  });
+  assert.equal(result.name, "app");
+  assert.deepEqual(stages.map((event) => event.stage), ["resolve", "initialize", "ready"]);
+  assert.ok(stages.every((event) => event.current >= 1 && event.current <= event.total));
+});

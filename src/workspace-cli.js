@@ -20,19 +20,23 @@ export async function runWorkspaceCLI(args, {
   catalog = new WorkspaceCatalog(),
   scheduler = new WorkspaceSyncScheduler(),
   initialize = (localPath) => initializeProject(localPath, path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "templates")),
+  progress = () => {},
 } = {}) {
   const [action = "list", source, ...rest] = args;
   if (action === "list") return catalog.list();
   if (action === "show") return catalog.resolve(source);
   if (action === "import") {
     const nameIndex = rest.indexOf("--name");
+    progress({ stage: "resolve", current: 1, total: 3, label: "Resolving and cloning repository" });
     const before = await catalog.list();
     const workspace = await catalog.import(source, { name: nameIndex >= 0 ? rest[nameIndex + 1] : undefined });
+    progress({ stage: "initialize", current: 2, total: 3, label: "Initializing project context" });
     try { await initialize(workspace.localPath); }
     catch (error) {
       if (!before.some((item) => item.name === workspace.name || item.repository === workspace.repository)) await catalog.remove(workspace.name).catch(() => {});
       throw error;
     }
+    progress({ stage: "ready", current: 3, total: 3, label: `Workspace ${workspace.name} ready` });
     return workspace;
   }
   if (action === "remove") {
@@ -68,9 +72,18 @@ export async function runWorkspaceCLI(args, {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const arguments_ = process.argv.slice(2);
-  runWorkspaceCLI(arguments_).then((result) => {
+  let progressActive = false;
+  const progress = ({ current, total, label }) => {
+    progressActive = current < total;
+    const width = 24;
+    const filled = Math.round((current / total) * width);
+    const line = `[${"=".repeat(filled)}${" ".repeat(width - filled)}] ${String(Math.round((current / total) * 100)).padStart(3)}% ${label}`;
+    process.stderr.write(process.stderr.isTTY ? `\r\x1b[2K${line}${current === total ? "\n" : ""}` : `${line}\n`);
+  };
+  runWorkspaceCLI(arguments_, { progress }).then((result) => {
     if (!(arguments_[0] === "sync" && arguments_[1] === "run")) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   }).catch((error) => {
+    if (progressActive && process.stderr.isTTY) process.stderr.write("\n");
     process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;
   });

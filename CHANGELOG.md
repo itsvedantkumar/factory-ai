@@ -4,6 +4,12 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-07-15
+
+### Added
+
+- Added a staged CLI progress bar for workspace resolution/cloning, project-context initialization, and readiness while preserving JSON on stdout.
+
 ## [2.4.1] - 2026-07-14
 
 ### Security
