@@ -7,7 +7,7 @@ test("routes scouting to benchmarked GPT-5.4 nano", () => {
 });
 
 test("routes independent testing to GPT-5.4", () => {
-  assert.equal(modelForRole("tester"), "azureai-responses/gpt-5.4");
+  assert.equal(modelForRole("tester"), "azureai-textved/gpt-5.4");
 });
 
 test("routes builders to benchmarked GPT-5.5 by default", () => {

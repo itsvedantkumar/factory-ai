@@ -4,6 +4,14 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-07-14
+
+### Fixed
+
+- Routed tester verification through the authenticated primary Azure resource's `gpt-5.4` deployment, removing the stale duplicate GPT-5.4 credential path.
+- Excluded infrastructure storage directories from objective-state discovery so dashboard snapshots no longer report irrelevant permission warnings.
+- Correctly reports upgraded installations without setup-state files as legacy-ready instead of incomplete.
+
 ## [2.3.1] - 2026-07-14
 
 ### Fixed

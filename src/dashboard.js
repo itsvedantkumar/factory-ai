@@ -81,7 +81,8 @@ export async function loadLocalState(root) {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  for (const entry of directories.filter((item) => item.isDirectory() && item.name !== "reports").sort((a, b) => a.name.localeCompare(b.name))) {
+  const infrastructureDirectories = new Set(["activity", "home", "memory", "ollama", "qdrant", "qdrant-snapshots", "reports", "retrieval", "telegram"]);
+  for (const entry of directories.filter((item) => item.isDirectory() && !infrastructureDirectories.has(item.name)).sort((a, b) => a.name.localeCompare(b.name))) {
     const file = path.join(root, entry.name, "state.json");
     try {
       const state = JSON.parse(await readFile(file, "utf8"));

@@ -226,7 +226,7 @@ case "$command" in
           variable="FACTORY_MODEL_${upper}"
           case "$current" in
             scout) default=azureai-textved/factory-gpt-5-4-nano ;;
-            tester) default=azureai-responses/gpt-5.4 ;;
+            tester) default=azureai-textved/gpt-5.4 ;;
             builder) default=azureai-textved/gpt-5.5 ;;
             *) default=azureai-textved/gpt-5.6-sol ;;
           esac
@@ -335,6 +335,8 @@ case "$command" in
       if [[ -f $SETUP_STATE_FILE ]]; then
         phase=$(jq -r '.phase // "unknown"' "$SETUP_STATE_FILE")
         onboarding_complete=$(jq -r '.onboardingComplete // false' "$SETUP_STATE_FILE")
+      elif config_ready; then
+        phase=legacy
       fi
       ready=false; config_ready && ready=true
       runtime_ready=false; [[ $ready == true && ( $phase == complete || $phase == legacy ) ]] && runtime_ready=true
@@ -432,11 +434,8 @@ case "$command" in
       read -r -p 'Azure OpenAI-compatible base URL: ' azure_base
       read -r -s -p 'Azure API key: ' azure_key; printf '\n'
       [[ $azure_base =~ ^https://[^[:space:]]+$ && -n $azure_key ]] || { printf 'A valid HTTPS Azure base URL and non-empty API key are required.\n' >&2; exit 2; }
-      read -r -p 'Separate GPT-5.4 base URL (Enter to reuse): ' azure_small_base
-      [[ -n $azure_small_base ]] || azure_small_base=$azure_base
-      read -r -s -p 'Separate GPT-5.4 key (Enter to reuse): ' azure_small_key; printf '\n'
-      [[ -n $azure_small_key ]] || azure_small_key=$azure_key
-      [[ $azure_small_base =~ ^https://[^[:space:]]+$ && -n $azure_small_key ]] || { printf 'A valid HTTPS GPT-5.4 base URL and non-empty API key are required.\n' >&2; exit 2; }
+      azure_small_base=$azure_base
+      azure_small_key=$azure_key
       store_vault_secret "$vault" azure-primary-base-url "$azure_base"
       store_vault_secret "$vault" azure-primary-api-key "$azure_key"
       store_vault_secret "$vault" azure-small-base-url "$azure_small_base"

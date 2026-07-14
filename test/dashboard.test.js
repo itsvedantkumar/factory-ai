@@ -74,8 +74,10 @@ test("loads valid state while recording corrupt and partial files", async () => 
   const root = await mkdtemp(path.join(os.tmpdir(), "factory-dashboard-"));
   await mkdir(path.join(root, "good"));
   await mkdir(path.join(root, "bad"));
+  await mkdir(path.join(root, "qdrant"));
   await writeFile(path.join(root, "good", "state.json"), JSON.stringify(state));
   await writeFile(path.join(root, "bad", "state.json"), "{broken");
+  await writeFile(path.join(root, "qdrant", "state.json"), "{not-objective-state");
 
   const loaded = await loadLocalState(root);
 

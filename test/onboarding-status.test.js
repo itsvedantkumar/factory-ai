@@ -22,6 +22,7 @@ test("onboarding status does not mistake a partial config for completed setup", 
   await writeFile(config, "FACTORY_NAME=Partial\n", { mode: 0o600 });
   assert.deepEqual(status(config, state), { phase: "not_started", onboardingComplete: false, configReady: false, runtimeReady: false });
   await writeFile(config, "FACTORY_SERVICE_BUS=bus\nFACTORY_KEY_VAULT=vault\nFACTORY_STORAGE_ACCOUNT=storage\n", { mode: 0o600 });
+  assert.deepEqual(status(config, state), { phase: "legacy", onboardingComplete: false, configReady: true, runtimeReady: true });
   await writeFile(state, '{"version":1,"phase":"complete","onboardingComplete":true}\n', { mode: 0o600 });
   assert.deepEqual(status(config, state), { phase: "complete", onboardingComplete: true, configReady: true, runtimeReady: true });
   await writeFile(state, '{"version":1,"phase":"foundation_ready","onboardingComplete":true}\n', { mode: 0o600 });
