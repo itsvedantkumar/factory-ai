@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 import { ServiceBusClient } from "@azure/service-bus";
 import { DefaultAzureCredential } from "@azure/identity";
 import { loadConfig } from "./config.js";
@@ -26,15 +27,31 @@ export function findStaleAgents(states, now = new Date(), staleSeconds = 900) {
   return stale;
 }
 
+export function findExpiredApprovals(states, now = new Date()) {
+  return states.filter((state) => state.status === "approval_required" && state.approval?.status === "approval_required" && Date.parse(state.approval.expiresAt) <= now.getTime()).map((state) => ({
+    type: "approval_decision",
+    objectiveId: state.objective.id,
+    approvalId: state.approval.approvalId,
+    decision: "expired",
+    actor: "approval-timeout",
+    reason: `Approval expired at ${state.approval.expiresAt}`,
+    decidedAt: now.toISOString(),
+    messageId: `expiry-${createHash("sha256").update(`${state.objective.id}\0${state.approval.approvalId}\0${state.approval.expiresAt}`).digest("hex").slice(0, 32)}`,
+  }));
+}
+
 async function main() {
   const config = loadConfig();
   const { states } = await loadLocalState(config.stateDir);
-  const stale = findStaleAgents(states, new Date(), Number(process.env.FACTORY_WATCHDOG_STALE_SECONDS ?? 900));
-  if (stale.length === 0) return;
+  const now = new Date();
+  const stale = findStaleAgents(states, now, Number(process.env.FACTORY_WATCHDOG_STALE_SECONDS ?? 900));
+  const expired = findExpiredApprovals(states, now);
+  if (stale.length === 0 && expired.length === 0) return;
   const client = new ServiceBusClient(config.serviceBusFqdn, new DefaultAzureCredential());
   const sender = client.createSender(config.controlQueue);
   const activityStore = new ActivityStore(config.stateDir);
   try {
+    for (const decision of expired) await sendMessage(sender, decision, decision.messageId, decision.objectiveId);
     for (const item of stale) {
       await activityStore.withTaskLock(item.objectiveId, item.taskId, async () => {
         const latest = await activityStore.latestTask(item.objectiveId, item.taskId);

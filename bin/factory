@@ -3,6 +3,7 @@ set -euo pipefail
 
 FACTORY_ROOT=$(dirname "$(dirname "$(realpath "$0")")")
 CONFIG_FILE=${FACTORY_CONFIG_FILE:-$HOME/.config/factory-ai/config}
+SETUP_STATE_FILE=${FACTORY_SETUP_STATE_FILE:-$(dirname "$CONFIG_FILE")/setup-state.json}
 LEGACY_CONFIG_FILE=$HOME/.config/agent-factory/config
 if [[ -f $CONFIG_FILE ]]; then source "$CONFIG_FILE"; elif [[ -f $LEGACY_CONFIG_FILE ]]; then source "$LEGACY_CONFIG_FILE"; fi
 RESOURCE_GROUP=${FACTORY_RESOURCE_GROUP:-factory-ai-rg}
@@ -12,6 +13,9 @@ VAULT=${FACTORY_KEY_VAULT:-}
 STORAGE=${FACTORY_STORAGE_ACCOUNT:-}
 FACTORY_NAME=${FACTORY_NAME:-Factory AI}
 FACTORY_PURPOSE=${FACTORY_PURPOSE:-Ship secure reviewed software continuously}
+
+config_ready() { [[ -n $STORAGE && -n $NAMESPACE && -n $VAULT ]]; }
+setup_phase() { [[ -f $SETUP_STATE_FILE ]] && jq -r '.phase // "unknown"' "$SETUP_STATE_FILE" 2>/dev/null || printf 'legacy\n'; }
 
 remote() {
   az vm run-command invoke --resource-group "$RESOURCE_GROUP" --name "$VM" \
@@ -36,7 +40,7 @@ usage() {
     '  workspace sync enable NAME Enable automatic committed-change sync' \
     '  workspace sync now NAME    Synchronize a workspace immediately' \
     '  workspace sync status      Show synchronization state' \
-    '  submit WORKSPACE OBJECTIVE Start a new objective' \
+    '  submit [--new] WORKSPACE OBJECTIVE  Queue an idempotent objective' \
     '  issue OWNER/REPO NUMBER     Process a GitHub issue' \
     '  init PATH                  Add Factory instructions to a project' \
     '' \
@@ -48,6 +52,8 @@ usage() {
     '  report                     Show the latest operator report' \
     '  pause                      Stop dispatching new work' \
     '  resume                     Resume work dispatch' \
+    '  shutdown                   Disable the complete runtime safely' \
+    '  start                      Re-enable the complete runtime' \
     '' \
     'CONFIGURE' \
     '  models show                Show role-to-model routes' \
@@ -71,8 +77,8 @@ usage() {
     '  telegram configure         Configure Telegram control' \
     '  telegram start             Start Telegram control' \
     '  telegram stop              Stop Telegram control' \
-    '  approval approve ...       Approve a release gate' \
-    '  approval deny ...          Deny a release gate' \
+    '  approval approve ...       Approve a policy checkpoint' \
+    '  approval deny ...          Deny a policy checkpoint' \
     '  acp REQUEST.json           Run an ACP request' \
     '  extension verify ...       Verify a signed extension' \
     '' \
@@ -84,7 +90,7 @@ shift || true
 
 apply_runtime_model() {
   local variable=$1 value=${2:-} mode=${3:-set} script settings
-  script="set -euo pipefail; exec 9>/run/lock/factory-ai-config.lock; flock -x 9; first=/etc/agent-factory.env; second=/etc/agent-factory-control.env; backup_first=\$(mktemp); backup_second=\$(mktemp); cp --preserve=mode,ownership \"\$first\" \"\$backup_first\"; cp --preserve=mode,ownership \"\$second\" \"\$backup_second\"; rollback() { install -m 0600 -o root -g root \"\$backup_first\" \"\$first\"; install -m 0600 -o root -g root \"\$backup_second\" \"\$second\"; systemctl restart agent-factory-control agent-factory-worker agent-factory-release || true; rm -f \"\$backup_first\" \"\$backup_second\"; }; trap rollback ERR TERM INT; for file in \"\$first\" \"\$second\"; do tmp=\$(mktemp); grep -v '^${variable}=' \"\$file\" > \"\$tmp\" || true; if [[ '$mode' == set ]]; then printf '${variable}=%s\\n' '$value' >> \"\$tmp\"; fi; install -m 0600 -o root -g root \"\$tmp\" \"\$file\"; rm -f \"\$tmp\"; done; systemctl restart agent-factory-control agent-factory-worker agent-factory-release; systemctl is-active --quiet agent-factory-control agent-factory-worker agent-factory-release; trap - ERR TERM INT; rm -f \"\$backup_first\" \"\$backup_second\""
+  script="set -euo pipefail; exec 9>/run/lock/factory-ai-config.lock; flock -x 9; first=/etc/agent-factory.env; second=/etc/agent-factory-control.env; backup_first=\$(mktemp); backup_second=\$(mktemp); cp --preserve=mode,ownership \"\$first\" \"\$backup_first\"; cp --preserve=mode,ownership \"\$second\" \"\$backup_second\"; rollback() { install -m 0640 -o root -g factory \"\$backup_first\" \"\$first\"; install -m 0640 -o root -g factory \"\$backup_second\" \"\$second\"; systemctl restart agent-factory-control agent-factory-worker agent-factory-release || true; rm -f \"\$backup_first\" \"\$backup_second\"; }; trap rollback ERR TERM INT; for file in \"\$first\" \"\$second\"; do tmp=\$(mktemp); grep -v '^${variable}=' \"\$file\" > \"\$tmp\" || true; if [[ '$mode' == set ]]; then printf '${variable}=%s\\n' '$value' >> \"\$tmp\"; fi; install -m 0640 -o root -g factory \"\$tmp\" \"\$file\"; rm -f \"\$tmp\"; done; systemctl restart agent-factory-control agent-factory-worker agent-factory-release; systemctl is-active --quiet agent-factory-control agent-factory-worker agent-factory-release; trap - ERR TERM INT; rm -f \"\$backup_first\" \"\$backup_second\""
   printf -v script 'bash -c %q' "$script"
   settings=$(jq -n --arg command "$script" '{commandToExecute:$command}')
   az vm extension set --resource-group "$RESOURCE_GROUP" --vm-name "$VM" --name CustomScript \
@@ -126,6 +132,25 @@ vm_extension_command() {
   az vm extension show --resource-group "$RESOURCE_GROUP" --vm-name "$VM" --name CustomScript --instance-view --query 'instanceView.statuses[0].message' --output tsv
 }
 
+store_vault_secret() {
+  local vault_name=$1 secret_name=$2 secret_value=$3 secret_file
+  [[ -n $secret_value && $secret_value != *$'\n'* && $secret_value != *$'\r'* ]] || { printf 'Secret %s is empty or contains a newline.\n' "$secret_name" >&2; return 2; }
+  secret_file=$(mktemp)
+  chmod 0600 "$secret_file"
+  printf '%s' "$secret_value" > "$secret_file"
+  if az keyvault secret set --vault-name "$vault_name" --name "$secret_name" --file "$secret_file" --output none; then rm -f "$secret_file"; else rm -f "$secret_file"; return 1; fi
+}
+
+wait_for_vault_access() {
+  local vault_name=$1
+  for _ in $(seq 1 12); do
+    az keyvault secret list --vault-name "$vault_name" --maxresults 1 --output none >/dev/null 2>&1 && return 0
+    sleep 5
+  done
+  printf 'Timed out waiting for Key Vault network access: %s\n' "$vault_name" >&2
+  return 1
+}
+
 case "$command" in
   update)
     action=${1:-check}
@@ -136,11 +161,23 @@ case "$command" in
         printf 'Local %s · latest %s\n' "$current" "$latest"
         ;;
       now)
-        vm_extension_command 'bash /opt/agent-factory/app/bootstrap/auto-update.sh'
         latest=$(npm view factory-ai version)
         current=$(node -p "require('$FACTORY_ROOT/package.json').version")
-        if [[ $current != "$latest" ]]; then npm install --global "factory-ai@$latest"; fi
-        printf 'Factory AI is current at %s locally and Azure update verification completed.\n' "$latest"
+        current_major=${current%%.*}; latest_major=${latest%%.*}
+        [[ $current_major == "$latest_major" ]] || { printf 'Major update %s -> %s requires an explicit migration release; local and Azure versions were not changed.\n' "$current" "$latest" >&2; exit 2; }
+        if [[ $current != "$latest" ]]; then
+          npm install --global "factory-ai@$latest"
+          if ! vm_extension_command 'bash /opt/agent-factory/app/bootstrap/auto-update.sh'; then
+            npm install --global "factory-ai@$current" || printf 'WARNING: local rollback to %s failed.\n' "$current" >&2
+            printf 'Azure update failed; local CLI rollback to %s was attempted.\n' "$current" >&2
+            exit 1
+          fi
+        fi
+        deployed=$(vm_extension_command 'jq -c . /opt/agent-factory/state/runtime-version.json')
+        grep -q "\"version\":\"$latest\"" <<<"$deployed" || { printf 'Azure runtime did not verify at %s; local version may require repair.\n' "$latest" >&2; exit 1; }
+        installed=$(node -p "require('$(npm root -g)/factory-ai/package.json').version")
+        [[ $installed == "$latest" ]] || { printf 'Local CLI verification failed: expected %s, found %s.\n' "$latest" "$installed" >&2; exit 1; }
+        printf 'Factory AI is current at %s locally and on Azure.\n' "$latest"
         ;;
       status)
         vm_extension_command 'set -e; printf "timer enabled: "; systemctl is-enabled factory-ai-update.timer; printf "timer active: "; systemctl is-active factory-ai-update.timer; jq -c . /opt/agent-factory/state/runtime-version.json'
@@ -228,9 +265,9 @@ case "$command" in
         cleanup_telegram_vault() { az keyvault network-rule remove --name "$VAULT" --ip-address "$ip/32" --output none >/dev/null 2>&1 || true; }
         trap cleanup_telegram_vault EXIT
         az keyvault network-rule add --name "$VAULT" --ip-address "$ip/32" --output none
-        sleep 5
-        az keyvault secret set --vault-name "$VAULT" --name telegram-bot-token --value "$telegram_token" --output none
-        az keyvault secret set --vault-name "$VAULT" --name telegram-allowed-chat-ids --value "$telegram_chat_ids" --output none
+        wait_for_vault_access "$VAULT"
+        store_vault_secret "$VAULT" telegram-bot-token "$telegram_token"
+        store_vault_secret "$VAULT" telegram-allowed-chat-ids "$telegram_chat_ids"
         unset telegram_token
         remote 'systemctl restart agent-factory-telegram.service; systemctl is-active agent-factory-telegram.service'
         ;;
@@ -253,7 +290,16 @@ case "$command" in
     exec "$0" submit "$repo" "$objective"
     ;;
   ui)
-    if [[ ! -f $CONFIG_FILE && ! -f $LEGACY_CONFIG_FILE ]]; then
+    if ! config_ready; then
+      "$0" setup
+      exec "$0" ui
+    fi
+    phase=$(setup_phase)
+    if [[ $phase == foundation_ready ]]; then
+      printf 'Azure foundation exists, but the runtime is not deployed. Run `factory setup --deploy`, then `factory doctor`.\n' >&2
+      exit 1
+    fi
+    if [[ $phase != complete && $phase != legacy ]]; then
       "$0" setup
       exec "$0" ui
     fi
@@ -283,10 +329,36 @@ case "$command" in
     exit 1
     ;;
   setup)
+    if [[ ${1:-} == --status ]]; then
+      phase=not_started
+      onboarding_complete=false
+      if [[ -f $SETUP_STATE_FILE ]]; then
+        phase=$(jq -r '.phase // "unknown"' "$SETUP_STATE_FILE")
+        onboarding_complete=$(jq -r '.onboardingComplete // false' "$SETUP_STATE_FILE")
+      fi
+      ready=false; config_ready && ready=true
+      runtime_ready=false; [[ $ready == true && ( $phase == complete || $phase == legacy ) ]] && runtime_ready=true
+      jq -n --arg phase "$phase" --argjson onboardingComplete "$onboarding_complete" --argjson configReady "$ready" --argjson runtimeReady "$runtime_ready" '{phase:$phase,onboardingComplete:$onboardingComplete,configReady:$configReady,runtimeReady:$runtimeReady}'
+      exit 0
+    fi
     for dependency in az gh jq curl ssh-keygen node; do command -v "$dependency" >/dev/null || { printf 'Missing dependency: %s\n' "$dependency" >&2; exit 1; }; done
+    mkdir -p "$(dirname "$CONFIG_FILE")"
+    setup_lock="$(dirname "$CONFIG_FILE")/setup.lock"
+    if ! ln -s "$$" "$setup_lock" 2>/dev/null; then
+      setup_pid=$(readlink "$setup_lock" 2>/dev/null || true)
+      if [[ $setup_pid =~ ^[0-9]+$ ]] && kill -0 "$setup_pid" 2>/dev/null; then
+        printf 'Factory setup is already running as process %s.\n' "$setup_pid" >&2
+      else
+        printf 'A stale setup lock exists at %s. Verify no setup process is running, then remove that symlink and retry.\n' "$setup_lock" >&2
+      fi
+      exit 1
+    fi
+    [[ ${1:-} == --reset ]] && rm -f "$SETUP_STATE_FILE"
     choices=$(mktemp)
-    trap 'rm -f "$choices"' EXIT
-    node "$FACTORY_ROOT/src/setup-menu.js" "$choices"
+    cleanup_setup_files() { rm -f "$choices"; [[ $(readlink "$setup_lock" 2>/dev/null || true) == "$$" ]] && rm -f "$setup_lock" || true; }
+    trap cleanup_setup_files EXIT
+    trap 'cleanup_setup_files; exit 130' INT TERM
+    node "$FACTORY_ROOT/src/setup-menu.js" "$choices" "$SETUP_STATE_FILE" "${1:-}"
     provider=$(jq -r .provider "$choices")
     factory_name=$(jq -r .factoryName "$choices")
     factory_purpose=$(jq -r .factoryPurpose "$choices")
@@ -296,11 +368,24 @@ case "$command" in
     bedrock_builder=$(jq -r .bedrockBuilderModel "$choices")
     deploy_now=$(jq -r .deployNow "$choices")
     telegram=$(jq -r .telegram "$choices")
+    skip_credentials=false
+    phase=$(setup_phase)
+    if [[ ${1:-} != --reset ]] && config_ready && [[ $phase == foundation || $phase == credentials_ready || $phase == foundation_ready ]]; then
+      vault=$VAULT
+      namespace=$NAMESPACE
+      storage=$STORAGE
+      [[ $phase == credentials_ready || $phase == foundation_ready ]] && skip_credentials=true
+    else
     az account show --query '{subscription:name,state:state}' --output table
     gh auth status
-    az group show --name "$RESOURCE_GROUP" --output none 2>/dev/null || az group create --name "$RESOURCE_GROUP" --location "$location" --output none
+    if az group show --name "$RESOURCE_GROUP" --output none 2>/dev/null; then
+      location=$(az group show --name "$RESOURCE_GROUP" --query location --output tsv)
+    else
+      az group create --name "$RESOURCE_GROUP" --location "$location" --output none
+    fi
     key=${FACTORY_SSH_KEY:-$HOME/.ssh/agent-factory-azure}
     [[ -f $key ]] || ssh-keygen -t ed25519 -f "$key" -N "" -C agent-factory-azure
+    [[ -f $key.pub ]] || { ssh-keygen -y -f "$key" > "$key.pub"; chmod 0644 "$key.pub"; }
     operator=$(az ad signed-in-user show --query id --output tsv)
     deployment=$(az deployment group create --name agent-factory-setup --resource-group "$RESOURCE_GROUP" --template-file "$FACTORY_ROOT/infra/main.bicep" --parameters adminSshKey="$(< "$key.pub")" operatorObjectId="$operator" --output json)
     vault=$(jq -r '.properties.outputs.keyVaultName.value' <<<"$deployment")
@@ -308,7 +393,12 @@ case "$command" in
     storage=$(jq -r '.properties.outputs.storageAccount.value' <<<"$deployment")
     VAULT=$vault
     NAMESPACE=$namespace
-    mkdir -p "$(dirname "$CONFIG_FILE")"
+    config_temporary=$(mktemp "${CONFIG_FILE}.XXXXXX")
+    if [[ -f $CONFIG_FILE ]]; then
+      grep -Ev '^FACTORY_(RESOURCE_GROUP|VM|SERVICE_BUS|KEY_VAULT|STORAGE_ACCOUNT|NAME|PURPOSE)=' "$CONFIG_FILE" > "$config_temporary" || true
+    elif [[ -f $LEGACY_CONFIG_FILE ]]; then
+      grep -Ev '^FACTORY_(RESOURCE_GROUP|VM|SERVICE_BUS|KEY_VAULT|STORAGE_ACCOUNT|NAME|PURPOSE)=' "$LEGACY_CONFIG_FILE" > "$config_temporary" || true
+    fi
     {
       printf 'FACTORY_RESOURCE_GROUP=%q\n' "$RESOURCE_GROUP"
       printf 'FACTORY_VM=%q\n' agent-factory-vm
@@ -317,53 +407,74 @@ case "$command" in
       printf 'FACTORY_STORAGE_ACCOUNT=%q\n' "$storage"
       printf 'FACTORY_NAME=%q\n' "$factory_name"
       printf 'FACTORY_PURPOSE=%q\n' "$factory_purpose"
-    } > "$CONFIG_FILE"
-    chmod 0600 "$CONFIG_FILE"
+    } >> "$config_temporary"
+    chmod 0600 "$config_temporary"
+    mv "$config_temporary" "$CONFIG_FILE"
+    state_temporary=$(mktemp "${SETUP_STATE_FILE}.XXXXXX")
+    jq '.phase="foundation" | .updatedAt=(now|todateiso8601)' "$SETUP_STATE_FILE" > "$state_temporary"
+    chmod 0600 "$state_temporary"
+    mv "$state_temporary" "$SETUP_STATE_FILE"
+    fi
+    if [[ $skip_credentials != true ]]; then
     ip=$(curl -fsS https://api.ipify.org)
-    cleanup_setup_vault() { az keyvault network-rule remove --name "$vault" --ip-address "$ip/32" --output none >/dev/null 2>&1 || true; rm -f "$choices"; }
+    cleanup_setup_vault() { az keyvault network-rule remove --name "$vault" --ip-address "$ip/32" --output none >/dev/null 2>&1 || true; cleanup_setup_files; }
     trap cleanup_setup_vault EXIT
     az keyvault network-rule add --name "$vault" --ip-address "$ip/32" --output none
-    sleep 10
+    wait_for_vault_access "$vault"
     github_token=$(gh auth token)
-    az keyvault secret set --vault-name "$vault" --name github-token --value "$github_token" --output none
+    store_vault_secret "$vault" github-token "$github_token"
     unset github_token
     if [[ -n $enterprise_org ]]; then
       gh api "orgs/$enterprise_org" --silent
-      az keyvault secret set --vault-name "$vault" --name github-enterprise-org --value "$enterprise_org" --output none
+      store_vault_secret "$vault" github-enterprise-org "$enterprise_org"
     fi
     if [[ $provider == azure || $provider == both ]]; then
       read -r -p 'Azure OpenAI-compatible base URL: ' azure_base
       read -r -s -p 'Azure API key: ' azure_key; printf '\n'
+      [[ $azure_base =~ ^https://[^[:space:]]+$ && -n $azure_key ]] || { printf 'A valid HTTPS Azure base URL and non-empty API key are required.\n' >&2; exit 2; }
       read -r -p 'Separate GPT-5.4 base URL (Enter to reuse): ' azure_small_base
       [[ -n $azure_small_base ]] || azure_small_base=$azure_base
       read -r -s -p 'Separate GPT-5.4 key (Enter to reuse): ' azure_small_key; printf '\n'
       [[ -n $azure_small_key ]] || azure_small_key=$azure_key
-      az keyvault secret set --vault-name "$vault" --name azure-primary-base-url --value "$azure_base" --output none
-      az keyvault secret set --vault-name "$vault" --name azure-primary-api-key --value "$azure_key" --output none
-      az keyvault secret set --vault-name "$vault" --name azure-small-base-url --value "$azure_small_base" --output none
-      az keyvault secret set --vault-name "$vault" --name azure-small-api-key --value "$azure_small_key" --output none
+      [[ $azure_small_base =~ ^https://[^[:space:]]+$ && -n $azure_small_key ]] || { printf 'A valid HTTPS GPT-5.4 base URL and non-empty API key are required.\n' >&2; exit 2; }
+      store_vault_secret "$vault" azure-primary-base-url "$azure_base"
+      store_vault_secret "$vault" azure-primary-api-key "$azure_key"
+      store_vault_secret "$vault" azure-small-base-url "$azure_small_base"
+      store_vault_secret "$vault" azure-small-api-key "$azure_small_key"
       unset azure_key azure_small_key
     fi
     if [[ $provider == bedrock || $provider == both ]]; then
       read -r -p 'AWS access key ID: ' aws_access_key
       read -r -s -p 'AWS secret access key: ' aws_secret_key; printf '\n'
       read -r -s -p 'AWS session token (optional): ' aws_session_token; printf '\n'
-      az keyvault secret set --vault-name "$vault" --name aws-access-key-id --value "$aws_access_key" --output none
-      az keyvault secret set --vault-name "$vault" --name aws-secret-access-key --value "$aws_secret_key" --output none
-      [[ -n $aws_session_token ]] && az keyvault secret set --vault-name "$vault" --name aws-session-token --value "$aws_session_token" --output none
+      [[ -n $aws_access_key && -n $aws_secret_key ]] || { printf 'AWS access key ID and secret access key are required.\n' >&2; exit 2; }
+      store_vault_secret "$vault" aws-access-key-id "$aws_access_key"
+      store_vault_secret "$vault" aws-secret-access-key "$aws_secret_key"
+      [[ -n $aws_session_token ]] && store_vault_secret "$vault" aws-session-token "$aws_session_token"
       unset aws_access_key aws_secret_key aws_session_token
     fi
     if [[ $telegram == true ]]; then
       read -r -s -p 'Telegram bot token from @BotFather: ' telegram_token; printf '\n'
       read -r -p 'Allowed Telegram chat IDs (comma-separated): ' telegram_chat_ids
-      [[ $telegram_chat_ids =~ ^-?[0-9]+(,-?[0-9]+)*$ ]] || { printf 'Invalid Telegram chat ID allowlist\n' >&2; exit 2; }
-      az keyvault secret set --vault-name "$vault" --name telegram-bot-token --value "$telegram_token" --output none
-      az keyvault secret set --vault-name "$vault" --name telegram-allowed-chat-ids --value "$telegram_chat_ids" --output none
+      [[ -n $telegram_token && $telegram_chat_ids =~ ^-?[0-9]+(,-?[0-9]+)*$ ]] || { printf 'A bot token and valid Telegram chat ID allowlist are required.\n' >&2; exit 2; }
+      store_vault_secret "$vault" telegram-bot-token "$telegram_token"
+      store_vault_secret "$vault" telegram-allowed-chat-ids "$telegram_chat_ids"
       unset telegram_token
+    fi
+    fi
+    if [[ $skip_credentials != true ]]; then
+      state_temporary=$(mktemp "${SETUP_STATE_FILE}.XXXXXX")
+      jq '.phase="credentials_ready" | .updatedAt=(now|todateiso8601)' "$SETUP_STATE_FILE" > "$state_temporary"
+      chmod 0600 "$state_temporary"
+      mv "$state_temporary" "$SETUP_STATE_FILE"
     fi
     printf 'Azure foundation and credential vault ready. Config: %s\n' "$CONFIG_FILE"
     if [[ $deploy_now == true ]]; then
-      source_ref=$(gh api repos/itsvedantkumar/factory-ai/commits/main --jq .sha)
+      installed_version=$(node -p "require('$FACTORY_ROOT/package.json').version")
+      source_ref=$(npm view "factory-ai@$installed_version" gitHead)
+      [[ $source_ref =~ ^[a-f0-9]{40}$ ]] || { printf 'Published package %s has no valid source commit provenance.\n' "$installed_version" >&2; exit 1; }
+      tag_ref=$(gh api "repos/itsvedantkumar/factory-ai/commits/v$installed_version" --jq .sha)
+      [[ $tag_ref == "$source_ref" ]] || { printf 'Release tag and npm package provenance disagree for %s.\n' "$installed_version" >&2; exit 1; }
       parameters=(KEY_VAULT_NAME "$vault" SERVICE_BUS_NAMESPACE "$namespace" FACTORY_STORAGE_ACCOUNT "$storage" FACTORY_NAME "$factory_name" FACTORY_PURPOSE "$factory_purpose" SOURCE_REPOSITORY itsvedantkumar/factory-ai SOURCE_REF "$source_ref")
       if [[ $provider == bedrock ]]; then
         parameters+=(AWS_REGION "$aws_region")
@@ -373,8 +484,13 @@ case "$command" in
       fi
       az vm run-command invoke --resource-group "$RESOURCE_GROUP" --name agent-factory-vm --command-id RunShellScript \
         --scripts @"$FACTORY_ROOT/bootstrap/deploy-runtime.sh" --parameters "${parameters[@]}" --output none
+      remote 'set -e; systemctl is-active --quiet agent-factory-control agent-factory-worker agent-factory-release; sudo -u factory node /opt/agent-factory/app/src/run-with-env.js /etc/agent-factory-control.env node /opt/agent-factory/app/src/provider-doctor.js'
       printf 'Runtime deployed. Run: factory doctor && factory dashboard\n'
     fi
+    state_temporary=$(mktemp "${SETUP_STATE_FILE}.XXXXXX")
+    jq --arg deployed "$deploy_now" '.phase=(if $deployed == "true" then "complete" else "foundation_ready" end) | .updatedAt=(now|todateiso8601)' "$SETUP_STATE_FILE" > "$state_temporary"
+    chmod 0600 "$state_temporary"
+    mv "$state_temporary" "$SETUP_STATE_FILE"
     ;;
   github)
     action=${1:-status}
@@ -392,9 +508,9 @@ case "$command" in
         cleanup_github_vault() { az keyvault network-rule remove --name "$VAULT" --ip-address "$ip/32" --output none >/dev/null 2>&1 || true; }
         trap cleanup_github_vault EXIT
         az keyvault network-rule add --name "$VAULT" --ip-address "$ip/32" --output none
-        sleep 5
-        az keyvault secret set --vault-name "$VAULT" --name github-token --value "$token" --output none
-        az keyvault secret set --vault-name "$VAULT" --name github-enterprise-org --value "$org" --output none
+        wait_for_vault_access "$VAULT"
+        store_vault_secret "$VAULT" github-token "$token"
+        store_vault_secret "$VAULT" github-enterprise-org "$org"
         unset token
         printf 'Connected organization %s. Restart release/worker services after credential changes.\n' "$org"
         ;;
@@ -414,14 +530,14 @@ case "$command" in
     cleanup_vault_rule() { az keyvault network-rule remove --name "$VAULT" --ip-address "$ip/32" --output none >/dev/null 2>&1 || true; }
     trap cleanup_vault_rule EXIT
     az keyvault network-rule add --name "$VAULT" --ip-address "$ip/32" --output none
-    sleep 5
+    wait_for_vault_access "$VAULT"
     case "$action" in
       list) az keyvault secret list --vault-name "$VAULT" --query '[].{name:name,updated:attributes.updated}' --output table ;;
       set)
         [[ $name =~ ^[A-Za-z0-9-]+$ ]] || { printf 'Valid secret name required\n' >&2; exit 2; }
         read -r -s -p "Value for $name: " value
         printf '\n'
-        az keyvault secret set --vault-name "$VAULT" --name "$name" --value "$value" --output none
+        store_vault_secret "$VAULT" "$name" "$value"
         unset value
         printf 'Stored %s in Azure Key Vault.\n' "$name"
         ;;
@@ -445,13 +561,11 @@ case "$command" in
     printf 'Initialized %s\nShared runtime memory remains on Azure; repo context lives in .agent-factory/.\n' "$context"
     ;;
   submit)
-    repo=${1:?workspace name or repository owner/name required}
-    shift
-    objective=${*:?objective required}
-    SERVICE_BUS_NAMESPACE="$NAMESPACE" CONTROL_QUEUE=control-events exec node "$FACTORY_ROOT/src/submit-cli.js" "$repo" "$objective"
+    [[ $# -ge 2 ]] || { printf 'Usage: factory submit [--new] WORKSPACE objective\n' >&2; exit 2; }
+    SERVICE_BUS_NAMESPACE="$NAMESPACE" CONTROL_QUEUE=control-events exec node "$FACTORY_ROOT/src/submit-cli.js" "$@"
     ;;
   dashboard|status)
-    remote 'sudo -u factory env $(xargs < /etc/agent-factory-control.env) node /opt/agent-factory/app/src/dashboard.js'
+    remote 'sudo -u factory node /opt/agent-factory/app/src/run-with-env.js /etc/agent-factory-control.env node /opt/agent-factory/app/src/dashboard.js'
     ;;
   queue)
     az servicebus queue list --resource-group "$RESOURCE_GROUP" --namespace-name "$NAMESPACE" \
@@ -464,13 +578,19 @@ case "$command" in
     remote 'journalctl -u agent-factory-control -u agent-factory-worker -u agent-factory-release --since "1 hour ago" --no-pager -n 250'
     ;;
   doctor)
-    remote 'systemctl is-active agent-factory-control agent-factory-worker agent-factory-release; systemctl is-enabled agent-factory-reporter.timer; docker ps --format "{{.Names}} {{.Status}}"; findmnt /opt/agent-factory/state; df -h /opt/agent-factory/state; free -h'
+    remote 'set -e; systemctl is-active agent-factory-control agent-factory-worker agent-factory-release; systemctl is-enabled agent-factory-reporter.timer; docker ps --format "{{.Names}} {{.Status}}"; findmnt /opt/agent-factory/state; df -h /opt/agent-factory/state; free -h; sudo -u factory node /opt/agent-factory/app/src/run-with-env.js /etc/agent-factory-control.env node /opt/agent-factory/app/src/provider-doctor.js'
     ;;
   pause)
     remote 'systemctl stop agent-factory-worker agent-factory-release'
     ;;
   resume)
     remote 'systemctl start agent-factory-worker agent-factory-release; systemctl is-active agent-factory-worker agent-factory-release'
+    ;;
+  shutdown)
+    remote 'systemctl stop agent-factory-worker.service agent-factory-control.service agent-factory-release.service agent-factory-reporter.timer agent-factory-telegram.service factory-ai-update.timer factory-ai-snapshot.timer factory-ai-watchdog.timer factory-ai-qdrant.service factory-ai-ollama.service; printf "Factory runtime stopped with enablement preferences preserved. Azure VM and storage remain allocated and billable.\n"'
+    ;;
+  start)
+    remote 'set -e; for unit in factory-ai-container-firewall.service agent-factory-control.service agent-factory-worker.service agent-factory-release.service agent-factory-reporter.timer agent-factory-telegram.service factory-ai-update.timer factory-ai-snapshot.timer factory-ai-watchdog.timer factory-ai-qdrant.service factory-ai-ollama.service; do systemctl is-enabled --quiet "$unit" && systemctl start "$unit" || true; done; systemctl is-active agent-factory-control agent-factory-worker agent-factory-release'
     ;;
   help|-h|--help) usage ;;
   *) usage >&2; exit 2 ;;

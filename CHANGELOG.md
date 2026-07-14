@@ -4,6 +4,21 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-07-14
+
+### Fixed
+
+- Replaced repaint-based onboarding with deterministic line prompts so every question appears exactly once, including through the TUI.
+- Added durable staged setup resume, reset/deploy/status controls, atomic locking/config writes, authoritative version provenance, credential validation, live provider probes, and complete runtime readiness gating.
+- Fixed planner, approved-task, terminal approval, blocked release, successful release, and failure redelivery paths so transient queue or state-write failures cannot strand objectives.
+- Fixed names and purposes containing spaces by replacing shell environment expansion with a strict environment-file runner.
+- Added atomic managed workspace imports, authoritative default-branch discovery, deterministic objective submission IDs, unattended approval expiration, symmetric shutdown/start, and local/Azure update rollback checks.
+
+### Security
+
+- Key Vault secret values are transferred through mode-0600 temporary files instead of process arguments.
+- Runtime environment files are atomically installed as `root:factory` mode `0640`; model-route updates preserve those permissions.
+
 ## [2.3.0] - 2026-07-14
 
 ### Added

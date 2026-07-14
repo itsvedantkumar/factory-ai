@@ -12,11 +12,10 @@ SyslogIdentifier=factory-ai-worker
 User=factory
 Group=factory
 WorkingDirectory=/opt/agent-factory/app
-EnvironmentFile=/etc/agent-factory.env
 Environment=HOME=/opt/agent-factory/state/home
 Environment=XDG_CACHE_HOME=/opt/agent-factory/state/home/.cache
 Environment=XDG_CONFIG_HOME=/opt/agent-factory/state/home/.config
-ExecStart=/usr/bin/node /opt/agent-factory/app/src/worker.js
+ExecStart=/usr/bin/node /opt/agent-factory/app/src/run-with-env.js /etc/agent-factory.env /usr/bin/node /opt/agent-factory/app/src/worker.js
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=45

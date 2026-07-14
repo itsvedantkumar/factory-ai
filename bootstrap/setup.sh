@@ -72,7 +72,7 @@ if [[ -f /opt/agent-factory/state/memory/knowledge-graph.jsonl && ! -e /opt/agen
   mv /opt/agent-factory/state/memory/knowledge-graph.jsonl /opt/agent-factory/state/memory/legacy-unscoped-knowledge-graph.jsonl
 fi
 install -d -o root -g root -m 0750 /opt/agent-factory/state/qdrant /opt/agent-factory/state/qdrant-snapshots /opt/agent-factory/state/ollama
-install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
+worker_env=$(mktemp)
 {
   printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"
   printf 'CONTROL_QUEUE=control-events\n'
@@ -100,9 +100,11 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory.env
   for variable in FACTORY_MODEL_SCOUT FACTORY_MODEL_PLANNER FACTORY_MODEL_BUILDER FACTORY_MODEL_TESTER FACTORY_MODEL_DEBUGGER FACTORY_MODEL_REVIEWER FACTORY_MODEL_SECURITY FACTORY_MODEL_RELEASE; do
     [[ -n ${!variable:-} ]] && printf '%s=%s\n' "$variable" "${!variable}"
   done
-} > /etc/agent-factory.env
+} > "$worker_env"
+install -m 0640 -o root -g "$FACTORY_USER" "$worker_env" /etc/agent-factory.env
+rm -f "$worker_env"
 
-install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
+control_env=$(mktemp)
 {
   printf 'SERVICE_BUS_NAMESPACE=%s\n' "$SERVICE_BUS_NAMESPACE"
   printf 'CONTROL_QUEUE=control-events\n'
@@ -112,6 +114,8 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
   printf 'AZURE_SUBSCRIPTION_ID=%s\n' "$subscription_id"
   printf 'FACTORY_RESOURCE_GROUP=%s\n' "$resource_group"
   [[ -n ${FACTORY_STORAGE_ACCOUNT:-} ]] && printf 'FACTORY_STORAGE_ACCOUNT=%s\n' "$FACTORY_STORAGE_ACCOUNT"
+  printf 'FACTORY_NAME=%s\n' "${FACTORY_NAME:-Factory AI}"
+  printf 'FACTORY_PURPOSE=%s\n' "${FACTORY_PURPOSE:-Ship secure reviewed software continuously}"
   printf 'FACTORY_STATE_DIR=/opt/agent-factory/state\n'
   printf 'FACTORY_REGISTRY=%s/config/capabilities.json\n' "$APP_DIR"
   printf 'MAX_DELIVERY_COUNT=8\n'
@@ -121,7 +125,9 @@ install -m 0600 -o root -g root /dev/null /etc/agent-factory-control.env
   for variable in FACTORY_MODEL_SCOUT FACTORY_MODEL_PLANNER FACTORY_MODEL_BUILDER FACTORY_MODEL_TESTER FACTORY_MODEL_DEBUGGER FACTORY_MODEL_REVIEWER FACTORY_MODEL_SECURITY FACTORY_MODEL_RELEASE; do
     [[ -n ${!variable:-} ]] && printf '%s=%s\n' "$variable" "${!variable}"
   done
-} > /etc/agent-factory-control.env
+} > "$control_env"
+install -m 0640 -o root -g "$FACTORY_USER" "$control_env" /etc/agent-factory-control.env
+rm -f "$control_env"
 
 chown -R "$FACTORY_USER:$FACTORY_USER" /opt/agent-factory/state /opt/agent-factory/workspaces /opt/agent-factory/logs
 chown root:root /opt/agent-factory/state/qdrant /opt/agent-factory/state/qdrant-snapshots /opt/agent-factory/state/ollama

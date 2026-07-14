@@ -9,9 +9,8 @@ SyslogIdentifier=factory-ai-release
 User=factory
 Group=factory
 WorkingDirectory=/opt/agent-factory/app
-EnvironmentFile=/etc/agent-factory.env
 Environment=HOME=/opt/agent-factory/state/home
-ExecStart=/usr/bin/node /opt/agent-factory/app/src/release-service.js
+ExecStart=/usr/bin/node /opt/agent-factory/app/src/run-with-env.js /etc/agent-factory.env /usr/bin/node /opt/agent-factory/app/src/release-service.js
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=45

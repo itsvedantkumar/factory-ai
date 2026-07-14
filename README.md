@@ -34,7 +34,7 @@ npm install -g factory-ai
 factory setup
 ```
 
-The arrow-key wizard handles the rest. A GitHub organization is not required; personal repositories work by default.
+The numbered, line-oriented wizard emits each question once and safely resumes saved onboarding answers after interruption. A GitHub organization is not required; personal repositories work by default.
 
 1. Select Azure AI Foundry, AWS Bedrock, or hybrid routing.
 2. Select infrastructure region and optional GitHub Enterprise organization.
@@ -96,6 +96,7 @@ factory ui
 | `factory logs` | Consolidated service logs |
 | `factory report` | Latest hourly executive report |
 | `factory pause` / `resume` | Pause or resume execution safely |
+| `factory shutdown` / `start` | Disable or re-enable the complete runtime; Azure resources remain allocated |
 | `factory secret set NAME` | Store a credential in global Key Vault |
 | `factory github connect ORG` | Connect GitHub Enterprise credentials |
 

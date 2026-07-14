@@ -81,7 +81,20 @@ export class WorkspaceCatalog {
       repository = source;
       await mkdir(this.root, { recursive: true, mode: 0o700 });
       localPath = path.join(this.root, source.replace("/", "--"));
-      if (!(await exists(localPath))) await this.execute("gh", ["repo", "clone", source, localPath], { timeoutMs: 600_000 });
+      if (!(await exists(localPath))) {
+        const temporary = `${localPath}.clone-${process.pid}`;
+        await rm(temporary, { recursive: true, force: true });
+        try {
+          await this.execute("gh", ["repo", "clone", source, temporary], { timeoutMs: 600_000 });
+          if (!(await exists(path.join(temporary, ".git")))) throw new Error("GitHub clone did not create a Git repository");
+          await rename(temporary, localPath);
+        } catch (error) {
+          await rm(temporary, { recursive: true, force: true });
+          throw error;
+        }
+      } else if (!(await exists(path.join(localPath, ".git")))) {
+        throw new Error(`Managed workspace path is not a valid clone; move or remove it before retrying: ${localPath}`);
+      }
       const remote = await this.execute("git", ["-C", localPath, "remote", "get-url", "origin"]);
       if (repositoryFromRemote(remote.stdout) !== repository) throw new Error("Managed workspace origin does not match requested repository");
     } else {
@@ -92,14 +105,19 @@ export class WorkspaceCatalog {
       repository = repositoryFromRemote(remote.stdout);
     }
     const defaultResult = await this.execute("git", ["-C", localPath, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], { allowExitCodes: [0, 1] });
-    const baseBranch = defaultResult.stdout.trim().replace(/^origin\//, "") || "main";
+    let baseBranch = defaultResult.stdout.trim().replace(/^origin\//, "");
+    if (!baseBranch) {
+      const remoteDefault = await this.execute("gh", ["repo", "view", repository, "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"], { timeoutMs: 60_000 });
+      baseBranch = remoteDefault.stdout.trim();
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/.test(baseBranch)) throw new Error(`Unable to determine a safe default branch for ${repository}`);
     const workspaceName = name ?? repository.split("/").at(-1);
     if (!namePattern.test(workspaceName)) throw new Error("Workspace name must use letters, numbers, dot, underscore, or dash");
     const workspaces = await this.load();
     const existing = workspaces.find((item) => item.name === workspaceName);
     if (existing && existing.repository !== repository) throw new Error(`Workspace name already exists: ${workspaceName}`);
     const previous = workspaces.find((item) => item.name === workspaceName || item.repository === repository);
-    const workspace = { name: workspaceName, repository, url: `https://github.com/${repository}.git`, localPath, baseBranch, importedAt: new Date().toISOString(), ...(previous?.sync ? { sync: previous.sync } : {}) };
+    const workspace = { name: workspaceName, repository, url: `https://github.com/${repository}.git`, localPath, baseBranch, importedAt: previous?.importedAt ?? new Date().toISOString(), ...(previous?.sync ? { sync: previous.sync } : {}) };
     await this.save([...workspaces.filter((item) => item.name !== workspaceName && item.repository !== repository), workspace]);
     return workspace;
   }

@@ -89,6 +89,30 @@ test("persists approval requests and resumes from their checkpoint after approva
   assert.equal(state.approval.messageId, "approval1-approved-operator");
 });
 
+test("redelivered approval decisions retry dispatch after a transient enqueue failure", async () => {
+  const task = { id: "build000", role: "builder", title: "Build", instructions: "Implement", dependsOn: [], capabilities: [] };
+  const store = new LockedStore({ objective, status: "approval_required", tasks: [task], results: { build000: { status: "approval_required" } }, approval: { ...request, checkpoint: "build000", status: "approval_required" } });
+  let attempts = 0;
+  const control = new ControlPlane({ store, registry: { defaults: {}, skills: {}, mcp: {} }, sendTask: async () => { attempts += 1; if (attempts === 1) throw new Error("queue unavailable"); } });
+  const approved = decision();
+  await assert.rejects(() => control.acceptApprovalDecision(approved), /queue unavailable/);
+  assert.equal((await store.read()).status, "approved");
+  await control.acceptApprovalDecision(approved);
+  assert.equal(attempts, 2);
+});
+
+test("redelivered terminal approval decisions repair failed result writes", async () => {
+  const store = new LockedStore({ objective, status: "approval_required", tasks: [], results: {}, approval: { ...request, status: "approval_required" } });
+  let writes = 0;
+  store.writeResult = async () => { writes += 1; if (writes === 1) throw new Error("disk unavailable"); };
+  const control = new ControlPlane({ store, registry: {}, sendTask: async () => {} });
+  const denied = decision({ decision: "denied", messageId: "approval1-denied", reason: "Risk rejected" });
+  await assert.rejects(() => control.acceptApprovalDecision(denied), /disk unavailable/);
+  assert.equal((await store.read()).status, "denied");
+  await control.acceptApprovalDecision(denied);
+  assert.equal(writes, 2);
+});
+
 test("duplicate and conflicting decision messages are idempotent and monotonic", async () => {
   const store = new LockedStore({ objective, status: "approval_required", tasks: [], results: {}, approval: { ...request, status: "approval_required" } });
   const control = new ControlPlane({ store, registry: {}, sendTask: async () => {} });

@@ -26,6 +26,16 @@ test("accepting an objective only dispatches a planner subagent", async () => {
   assert.equal(sent[0].task.role, "planner");
 });
 
+test("redelivered objectives retry planner dispatch after a transient enqueue failure", async () => {
+  const store = new MemoryStore();
+  let attempts = 0;
+  const control = new ControlPlane({ store, registry: {}, sendTask: async () => { attempts += 1; if (attempts === 1) throw new Error("queue unavailable"); } });
+  await assert.rejects(() => control.acceptObjective(objective), /queue unavailable/);
+  assert.equal((await store.read(objective.id)).status, "planning");
+  await control.acceptObjective(objective);
+  assert.equal(attempts, 2);
+});
+
 test("validated planning results dispatch ready task packets", async () => {
   const sent = [];
   const store = new MemoryStore();
@@ -72,4 +82,17 @@ test("late queue messages cannot overwrite terminal objective state", async () =
   await store.write(objective.id, { objective, status: "failed", tasks: [], results: {} });
   await control.acceptReleaseResult({ type: "release_result", objectiveId: objective.id, release: { url: "https://github.com/acme/app/pull/2" } });
   assert.equal((await store.read(objective.id)).status, "failed");
+});
+
+test("terminal result redelivery repairs failed durable result writes", async () => {
+  const store = new MemoryStore();
+  let writes = 0;
+  store.writeResult = async () => { writes += 1; if (writes === 1) throw new Error("disk unavailable"); };
+  await store.write(objective.id, { objective, status: "running", tasks: [], results: {} });
+  const control = new ControlPlane({ store, registry: {}, sendTask: async () => {} });
+  const release = { type: "release_result", objectiveId: objective.id, release: { url: "https://github.com/acme/app/pull/1" } };
+  await assert.rejects(() => control.acceptReleaseResult(release), /disk unavailable/);
+  assert.equal((await store.read(objective.id)).status, "complete");
+  await control.acceptReleaseResult(release);
+  assert.equal(writes, 2);
 });

@@ -188,8 +188,8 @@ var paletteActions = []paletteAction{
 	{title: "Sync workspace now", description: "Push or fast-forward committed changes", prefix: "workspace sync now {workspace}"},
 	{title: "Disable Git sync", description: "Stop automatic sync for selected workspace", prefix: "workspace sync disable {workspace}"},
 	{title: "Set secret", description: "Store a secret in Azure Key Vault", prefix: "secret set "},
-	{title: "Approve release", description: "Approve a pending release gate", prefix: "approval approve "},
-	{title: "Deny release", description: "Reject a pending release gate", prefix: "approval deny "},
+	{title: "Approve checkpoint", description: "Approve the selected policy checkpoint", prefix: "approval approve {objective} {approval} "},
+	{title: "Deny checkpoint", description: "Reject the selected policy checkpoint", prefix: "approval deny {objective} {approval} "},
 	{title: "Show models", description: "Inspect active role and model routes", prefix: "models show"},
 	{title: "Pause factory", description: "Stop dispatching new work", prefix: "pause"},
 	{title: "Resume factory", description: "Resume work dispatch", prefix: "resume"},
@@ -225,8 +225,8 @@ var commandCompletions = []completion{
 	{value: "secret set ", description: "Set a secret"},
 	{value: "secret copy ", description: "Copy a secret"},
 	{value: "secret delete ", description: "Delete a secret"},
-	{value: "approval approve ", description: "Approve a release gate"},
-	{value: "approval deny ", description: "Deny a release gate"},
+	{value: "approval approve ", description: "Approve a policy checkpoint"},
+	{value: "approval deny ", description: "Deny a policy checkpoint"},
 	{value: "github status", description: "Show GitHub connection"},
 	{value: "github connect ", description: "Connect a GitHub organization"},
 	{value: "telegram status", description: "Show Telegram integration"},
@@ -234,6 +234,8 @@ var commandCompletions = []completion{
 	{value: "update check", description: "Check for updates"},
 	{value: "update now", description: "Install and deploy the latest release"},
 	{value: "update status", description: "Show updater status"},
+	{value: "update enable", description: "Enable automatic updates"},
+	{value: "update disable", description: "Disable automatic updates"},
 	{value: "dashboard", description: "Refresh dashboard data"},
 	{value: "status", description: "Show runtime status"},
 	{value: "queue", description: "Show queue state"},
@@ -242,6 +244,8 @@ var commandCompletions = []completion{
 	{value: "doctor", description: "Run diagnostics"},
 	{value: "pause", description: "Pause dispatch"},
 	{value: "resume", description: "Resume dispatch"},
+	{value: "shutdown", description: "Stop the complete runtime"},
+	{value: "start", description: "Start the complete runtime"},
 }
 
 var (
@@ -335,7 +339,7 @@ func validateFactoryCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("enter a factory command")
 	}
-	allowed := map[string]bool{"setup": true, "configure": true, "models": true, "acp": true, "extension": true, "github": true, "telegram": true, "workspace": true, "submit": true, "issue": true, "init": true, "secret": true, "dashboard": true, "status": true, "queue": true, "report": true, "logs": true, "doctor": true, "pause": true, "resume": true, "update": true, "approval": true, "help": true, "--help": true, "-h": true}
+	allowed := map[string]bool{"setup": true, "configure": true, "models": true, "acp": true, "extension": true, "github": true, "telegram": true, "workspace": true, "submit": true, "issue": true, "init": true, "secret": true, "dashboard": true, "status": true, "queue": true, "report": true, "logs": true, "doctor": true, "pause": true, "resume": true, "shutdown": true, "start": true, "update": true, "approval": true, "help": true, "--help": true, "-h": true}
 	if args[0] == "ui" {
 		return fmt.Errorf("the UI command cannot be launched inside itself")
 	}
@@ -771,6 +775,17 @@ func (m *model) setEditorValue(value string) {
 	} else {
 		value = strings.ReplaceAll(value, "{workspace} ", "")
 		value = strings.ReplaceAll(value, "{workspace}", "")
+	}
+	if objective := m.selectedObjective(); objective != nil {
+		value = strings.ReplaceAll(value, "{objective}", objective.ID)
+		approvalID := ""
+		if objective.Approval != nil {
+			approvalID = objective.Approval.ApprovalID
+		}
+		value = strings.ReplaceAll(value, "{approval}", approvalID)
+	} else {
+		value = strings.ReplaceAll(value, "{objective}", "")
+		value = strings.ReplaceAll(value, "{approval}", "")
 	}
 	m.editor.SetValue(value)
 	m.editor.CursorEnd()

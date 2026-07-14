@@ -37,3 +37,14 @@ test("workspace sync enable rolls back consent and persistence when initial sync
   await assert.rejects(() => runWorkspaceCLI(["sync", "enable", "app"], { catalog, scheduler, initialize: async () => {} }), /dirty/);
   assert.deepEqual(calls, [["scheduler", "enable"], ["scheduler", "disable"]]);
 });
+
+test("workspace import removes a new catalog entry when project initialization fails", async () => {
+  const calls = [];
+  const catalog = {
+    list: async () => [],
+    import: async () => ({ name: "app", localPath: "/tmp/app" }),
+    remove: async (name) => calls.push(["remove", name]),
+  };
+  await assert.rejects(() => runWorkspaceCLI(["import", "acme/app"], { catalog, scheduler: {}, initialize: async () => { throw new Error("template failed"); } }), /template failed/);
+  assert.deepEqual(calls, [["remove", "app"]]);
+});

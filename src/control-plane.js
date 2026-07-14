@@ -16,19 +16,21 @@ export class ControlPlane {
 
   async acceptObjective(value) {
     const objective = parseObjective(value);
+    let state;
     try {
-      await this.store.read(objective.id);
-      return;
+      state = await this.store.read(objective.id);
+      if (state.status !== "planning" || state.tasks?.length > 0) return;
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
+      state = {
+        objective,
+        status: "planning",
+        tasks: [],
+        results: {},
+        createdAt: new Date().toISOString(),
+      };
+      await this.store.write(objective.id, state);
     }
-    await this.store.write(objective.id, {
-      objective,
-      status: "planning",
-      tasks: [],
-      results: {},
-      createdAt: new Date().toISOString(),
-    });
     const context = this.memory ? await this.memory.context(objective.repository) : [];
     await this.sendTask({
       type: "planning_task",
@@ -83,7 +85,16 @@ export class ControlPlane {
     const decision = parseApprovalDecisionMessage(value);
     let accepted = false;
     let approved = false;
+    let retryDispatch = false;
     await this.store.update(decision.objectiveId, (state) => {
+      if (state.status === "approved" && state.approval?.status === "approved" && state.approval.approvalId === decision.approvalId && state.approval.messageId === decision.messageId && decision.decision === "approved") {
+        retryDispatch = true;
+        return state;
+      }
+      if (["denied", "expired"].includes(state.status) && state.approval?.approvalId === decision.approvalId && state.approval.messageId === decision.messageId) {
+        accepted = true;
+        return state;
+      }
       if (state.status !== "approval_required" || state.approval?.approvalId !== decision.approvalId) return state;
       if (decision.decision === "expired" && Date.parse(decision.decidedAt) < Date.parse(state.approval.expiresAt)) return state;
       const status = Date.parse(decision.decidedAt) >= Date.parse(state.approval.expiresAt) ? "expired" : decision.decision;
@@ -98,7 +109,7 @@ export class ControlPlane {
         approval: { ...state.approval, status, actor: decision.actor, reason: decision.reason, decidedAt: decision.decidedAt, messageId: decision.messageId },
       };
     });
-    if (accepted && approved) await this.dispatch(decision.objectiveId);
+    if ((accepted && approved) || retryDispatch) await this.dispatch(decision.objectiveId);
     if (accepted && !approved) {
       const state = await this.store.read(decision.objectiveId);
       await this.store.writeResult(decision.objectiveId, {
@@ -114,6 +125,10 @@ export class ControlPlane {
     if (value?.type !== "release_result" || typeof value.objectiveId !== "string" || !value.release?.url) throw new Error("Invalid release result");
     let accepted = false;
     const state = await this.store.update(value.objectiveId, (current) => {
+      if (current.status === "complete" && current.release?.url === value.release.url) {
+        accepted = true;
+        return current;
+      }
       if (TERMINAL_OBJECTIVE_STATES.has(current.status)) return current;
       accepted = true;
       return { ...current, status: "complete", release: value.release, completedAt: new Date().toISOString() };
@@ -146,6 +161,10 @@ export class ControlPlane {
     const blocker = `${value.taskId ?? "unknown-task"}: ${value.error}`;
     let accepted = false;
     const state = await this.store.update(value.objectiveId, (current) => {
+      if (current.status === "failed" && current.failure === blocker) {
+        accepted = true;
+        return current;
+      }
       if (TERMINAL_OBJECTIVE_STATES.has(current.status)) return current;
       accepted = true;
       return {
@@ -170,6 +189,10 @@ export class ControlPlane {
 
   async dispatch(objectiveId) {
     const state = await this.store.read(objectiveId);
+    if (state.status === "blocked" && state.failure) {
+      await this.store.writeResult(objectiveId, { objectiveId, status: "blocked", executiveSummary: state.executiveIntent ?? state.objective.objective, checks: [], blockers: [state.failure], autoMergeEnabled: false, completedAt: state.completedAt });
+      return;
+    }
     if (TERMINAL_OBJECTIVE_STATES.has(state.status) || state.status === "approval_required") return;
     for (const taskId of readyTasks(state.tasks, state.results)) {
       const task = state.tasks.find((candidate) => candidate.id === taskId);

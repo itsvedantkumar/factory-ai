@@ -9,7 +9,7 @@ test("factory help groups common commands into a readable quick reference", () =
     assert.match(result.stdout, new RegExp(`^${heading}$`, "m"));
   }
   assert.match(result.stdout, /^  ui\s+Open the interactive operator console$/m);
-  assert.match(result.stdout, /^  submit WORKSPACE OBJECTIVE\s+Start a new objective$/m);
+  assert.match(result.stdout, /^  submit \[--new\] WORKSPACE OBJECTIVE\s+Queue an idempotent objective$/m);
   assert.doesNotMatch(result.stdout, /workspace list \| import/);
   assert.ok(result.stdout.split("\n").length < 65, "help should remain a concise quick reference");
 });

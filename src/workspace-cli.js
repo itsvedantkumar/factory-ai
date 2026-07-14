@@ -26,8 +26,13 @@ export async function runWorkspaceCLI(args, {
   if (action === "show") return catalog.resolve(source);
   if (action === "import") {
     const nameIndex = rest.indexOf("--name");
+    const before = await catalog.list();
     const workspace = await catalog.import(source, { name: nameIndex >= 0 ? rest[nameIndex + 1] : undefined });
-    await initialize(workspace.localPath);
+    try { await initialize(workspace.localPath); }
+    catch (error) {
+      if (!before.some((item) => item.name === workspace.name || item.repository === workspace.repository)) await catalog.remove(workspace.name).catch(() => {});
+      throw error;
+    }
     return workspace;
   }
   if (action === "remove") {
