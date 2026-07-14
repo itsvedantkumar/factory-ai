@@ -239,6 +239,17 @@ type pickerItem struct {
 const addWorkspaceID = "__add_workspace__"
 
 var commandCompletions = []completion{
+	{value: "/help", description: "Show the beginner command guide"},
+	{value: "/commands", description: "Open all Factory commands"},
+	{value: "/workspace", description: "Choose a workspace"},
+	{value: "/workspace add ", description: "Import a local path or OWNER/REPO"},
+	{value: "/objective", description: "Choose an objective"},
+	{value: "/agent", description: "Choose a sub-agent"},
+	{value: "/diff", description: "Show selected agent code"},
+	{value: "/activity", description: "Show selected agent activity"},
+	{value: "/copy", description: "Copy the visible code diff"},
+	{value: "/refresh", description: "Refresh Factory state"},
+	{value: "/quit", description: "Exit Factory"},
 	{value: "help", description: "Show the command reference"},
 	{value: "setup", description: "Deploy or repair Factory AI"},
 	{value: "configure models", description: "Configure model providers"},
@@ -601,7 +612,7 @@ func tickCmd() tea.Cmd {
 
 func newModel(client *azblob.Client, factoryName, purpose string) model {
 	editor := textarea.New()
-	editor.Placeholder = "Factory command (for example: submit workspace fix the failing test)"
+	editor.Placeholder = "Type /help, /workspace, /agent, or any Factory command"
 	editor.Prompt = ""
 	editor.ShowLineNumbers = false
 	editor.CharLimit = 12_000
@@ -627,6 +638,7 @@ func (m model) completions() []completion {
 	candidates := append([]completion(nil), commandCompletions...)
 	for _, item := range m.workspaces {
 		candidates = append(candidates,
+			completion{value: "/workspace " + item.Name, description: "Switch workspace"},
 			completion{value: "submit " + item.Name + " ", description: "Submit an objective"},
 			completion{value: "workspace show " + item.Name, description: "Show workspace details"},
 			completion{value: "workspace remove " + item.Name, description: "Remove workspace"},
@@ -634,6 +646,12 @@ func (m model) completions() []completion {
 			completion{value: "workspace sync enable " + item.Name, description: "Enable automatic sync"},
 			completion{value: "workspace sync disable " + item.Name, description: "Disable automatic sync"},
 		)
+	}
+	for _, item := range m.visibleObjectives() {
+		candidates = append(candidates, completion{value: "/objective " + item.ID, description: trim(item.Objective, 60)})
+	}
+	for _, item := range m.agentRecords() {
+		candidates = append(candidates, completion{value: "/agent " + item.task.ID, description: item.task.Role + " · " + trim(item.task.Title, 50)})
 	}
 	result := make([]completion, 0, 5)
 	for _, candidate := range candidates {
@@ -960,6 +978,129 @@ func (m *model) setEditorValue(value string) {
 	m.completionIndex = 0
 }
 
+func (m *model) runSlashCommand(line string) (bool, tea.Cmd) {
+	args, err := parseCommandLine(strings.TrimPrefix(strings.TrimSpace(line), "/"))
+	if err != nil || len(args) == 0 {
+		m.notice = "Invalid slash command. Type /help"
+		return true, nil
+	}
+	finish := func() { m.editor.Reset(); m.historyIndex = len(m.commandHistory) }
+	switch args[0] {
+	case "workspace", "ws":
+		if len(args) == 1 {
+			finish()
+			m.openModal("workspaces")
+			return true, nil
+		}
+		if args[1] == "add" {
+			if len(args) == 2 {
+				m.setEditorValue("workspace import ")
+				return true, nil
+			}
+			finish()
+			m.loading = true
+			return true, executeFactoryCommand(append([]string{"workspace", "import"}, args[2:]...))
+		}
+		for index, item := range m.workspaces {
+			if strings.EqualFold(item.Name, args[1]) {
+				finish()
+				m.selectWorkspace(index)
+				m.notice = "Workspace: " + item.Name
+				return true, nil
+			}
+		}
+		m.notice = "Unknown workspace. Type /workspace or /workspace add"
+		return true, nil
+	case "objective", "session":
+		if len(args) == 1 {
+			finish()
+			m.openModal("objectives")
+			return true, nil
+		}
+		for _, item := range m.visibleObjectives() {
+			if strings.EqualFold(item.ID, args[1]) {
+				finish()
+				m.selectedObjectiveID = item.ID
+				m.selectedAgentID = ""
+				m.resetAgentView()
+				m.ensureSelection()
+				m.syncViewport()
+				m.content.GotoBottom()
+				return true, nil
+			}
+		}
+		m.notice = "Unknown objective. Type /objective to choose"
+		return true, nil
+	case "agent":
+		if len(args) == 1 {
+			finish()
+			m.openModal("agents")
+			return true, nil
+		}
+		for index, item := range m.agentRecords() {
+			if strings.EqualFold(item.task.ID, args[1]) || strings.EqualFold(item.task.Role, args[1]) {
+				finish()
+				m.selectedAgent, m.selectedAgentID = index, item.task.ID
+				m.resetAgentView()
+				m.syncViewport()
+				m.content.GotoBottom()
+				return true, nil
+			}
+		}
+		m.notice = "Unknown agent. Type /agent to choose"
+		return true, nil
+	case "diff", "code":
+		objective := m.selectedObjective()
+		if objective == nil || m.selectedAgentID == "" {
+			m.notice = "Choose an objective and agent first"
+			return true, nil
+		}
+		finish()
+		m.agentView = "diff"
+		m.agentDiffRequest++
+		m.agentPatchLoading = true
+		m.syncViewport()
+		return true, fetchAgentDiffCmd(objective.ID, m.selectedAgentID, m.agentDiffRequest)
+	case "activity":
+		finish()
+		m.agentDiffRequest++
+		m.agentPatchLoading = false
+		m.agentView = "activity"
+		m.syncViewport()
+		m.content.GotoBottom()
+		return true, nil
+	case "copy":
+		finish()
+		objective := m.selectedObjective()
+		if objective == nil || m.agentPatchLoading || m.agentView != "diff" || m.agentPatchKey != objective.ID+":"+m.selectedAgentID || m.agentPatch == "" {
+			m.notice = "Wait for /diff to finish before copying"
+			return true, nil
+		}
+		return true, copyToClipboardCmd(clean(m.agentPatch))
+	case "help":
+		finish()
+		m.modal = "help"
+		m.editor.Blur()
+		return true, nil
+	case "commands":
+		finish()
+		m.paletteIndex = 0
+		m.showPalette = true
+		m.editor.Blur()
+		return true, nil
+	case "refresh":
+		finish()
+		m.loading = true
+		m.refreshRequest++
+		return true, fetchCmd(m.client, m.refreshRequest)
+	case "quit", "exit":
+		return true, tea.Quit
+	default:
+		m.notice = "Unknown slash command: /" + args[0] + ". Type /help"
+		return true, nil
+	}
+}
+
 func (m model) Init() tea.Cmd {
 	return tea.Batch(fetchCmd(m.client, m.refreshRequest), tickCmd(), textarea.Blink)
 }
@@ -1021,6 +1162,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "esc", "ctrl+k":
 				m.showPalette = false
+				return m, m.editor.Focus()
 			case "up", "k":
 				if m.paletteIndex > 0 {
 					m.paletteIndex--
@@ -1210,10 +1352,19 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case "enter":
+			line := strings.TrimSpace(m.editor.Value())
+			slashRoots := map[string]bool{"/workspace": true, "/ws": true, "/objective": true, "/session": true, "/agent": true, "/diff": true, "/code": true, "/activity": true, "/copy": true, "/help": true, "/commands": true, "/refresh": true, "/quit": true, "/exit": true}
+			if slashRoots[line] {
+				_, command := m.runSlashCommand(line)
+				return m, command
+			}
 			if m.acceptCompletion() {
 				return m, nil
 			}
-			line := strings.TrimSpace(m.editor.Value())
+			if strings.HasPrefix(line, "/") {
+				_, command := m.runSlashCommand(line)
+				return m, command
+			}
 			args, err := parseCommandLine(line)
 			if err == nil {
 				err = validateFactoryCommand(args)
@@ -1425,7 +1576,7 @@ func (m *model) ensureSelection() {
 func (m model) sessionStream() string {
 	selected := m.selectedObjective()
 	if selected == nil {
-		return "NEW SESSION\n\nDescribe an objective in the command editor or press ctrl+s to select an existing objective."
+		return "NEW SESSION\n\nType /commands to start a new objective or /objective to select an existing one."
 	}
 	var agent *task
 	for index := range selected.Tasks {
@@ -1677,7 +1828,7 @@ func (m model) sidebar(maxLines int) string {
 	if len(records) == 0 {
 		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("Waiting for plan...") + "\n")
 	}
-	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("Ctrl+W workspace\nCtrl+S objective\nCtrl+G agent\nCtrl+D code · Ctrl+Y copy\nF1 help"))
+	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("/workspace switch/add\n/objective choose\n/agent choose\n/diff code · /copy\n/help"))
 	return value.String()
 }
 
@@ -1713,7 +1864,7 @@ func (m model) settings() string {
 
 func (m model) body() string {
 	if m.tab < 3 && m.selected() == nil {
-		return "SELECT A WORKSPACE\n\nOpen the command palette with ctrl+k and import one.\nObjectives and agents are scoped to the selected workspace."
+		return "SELECT A WORKSPACE\n\nType /workspace to choose one or /workspace add OWNER/REPO to import one."
 	}
 	switch m.tab {
 	case 0:
@@ -1730,7 +1881,7 @@ func (m model) body() string {
 func (m model) View() string {
 	width, height := max(m.width, 1), max(m.height, 1)
 	if width < 20 || height < 8 {
-		rows := []string{trim(strings.ToUpper(clean(m.factoryName)), width), trim("COMMAND "+m.editor.Value(), width), trim("ctrl+k commands · ctrl+c quit", width)}
+		rows := []string{trim(strings.ToUpper(clean(m.factoryName)), width), trim("COMMAND "+m.editor.Value(), width), trim("/help · /workspace · /quit", width)}
 		if m.modal != "" {
 			rows[1] = trim("SELECT "+m.modal, width)
 			items := m.modalItems()
@@ -1810,7 +1961,7 @@ func (m model) View() string {
 		BorderForeground(accent).
 		Padding(0, 1).
 		Render(strings.Join(editorRows, "\n"))
-	status := "F1 help  Ctrl+W workspace  Ctrl+S objective  Ctrl+G agent  Ctrl+D code  Ctrl+Y copy"
+	status := "/help  /workspace  /objective  /agent  /diff  /copy"
 	if m.loading {
 		status = "Refreshing Factory state...  " + status
 	}
@@ -1829,15 +1980,16 @@ func (m model) View() string {
 			help := []string{
 				lipgloss.NewStyle().Foreground(accent).Bold(true).Render("Getting started"),
 				"",
-				"1. Ctrl+W  Choose or add a workspace",
-				"2. Ctrl+K  Choose New objective, then describe the work",
-				"3. Ctrl+S  Switch objectives",
-				"4. Ctrl+G  Choose a sub-agent",
-				"5. Ctrl+D  View that agent's code diff",
-				"6. Ctrl+Y  Copy the visible code diff",
-				"7. Ctrl+A  Return to agent activity",
+				"1. /workspace       Choose a workspace",
+				"2. /workspace add   Import PATH or OWNER/REPO",
+				"3. /commands        Choose New objective",
+				"4. /objective       Switch objectives",
+				"5. /agent           Choose a sub-agent",
+				"6. /diff            View that agent's code",
+				"7. /copy            Copy the visible diff",
+				"8. /activity        Return to agent activity",
 				"",
-				"Ctrl+K commands · PgUp/PgDn scroll · Ctrl+R refresh",
+				"Keyboard shortcuts still work; slash commands are primary",
 				"Esc or F1 closes help",
 			}
 			maxWidth := max(min(width-8, 72), 12)

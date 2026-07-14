@@ -100,7 +100,7 @@ factory ui
 | `factory secret set NAME` | Store a credential in global Key Vault |
 | `factory github connect ORG` | Connect GitHub Enterprise credentials |
 
-Inside `factory ui`, press `F1` for a beginner walkthrough. The main pane is an OpenCode-style objective stream and the right sidebar is the selected objective's sub-agent roster. Click an agent to inspect activity, press `Ctrl+D` for its live/checkpointed code patch, `Ctrl+Y` to copy the patch, and `Ctrl+A` to return to activity. Use `Ctrl+W` for workspaces, where `+ Add workspace...` or `a` starts an import; `Ctrl+S` selects objectives, `Ctrl+G` selects agents, and `Ctrl+K` opens commands. Warm starts render the last account-bound snapshot immediately while a parallel refresh runs.
+Inside `factory ui`, type slash commands directly: `/workspace`, `/workspace NAME`, `/workspace add OWNER/REPO`, `/objective`, `/agent`, `/diff`, `/copy`, `/commands`, `/refresh`, `/help`, or `/quit`. Autocomplete includes live workspace, objective, and agent identifiers. The sidebar remains optional visual context, and keyboard shortcuts continue to work. Warm starts render the last account-bound snapshot immediately while a parallel refresh runs.
 
 Two-way workspace sync is explicit and non-destructive. Enabling it installs a per-user launchd or systemd timer that runs every minute. Clean default branches fast-forward from GitHub or push ordinary local commits without force. Dirty worktrees, detached heads, changed origins, non-default branches, divergence, conflicts, and rejected pushes are marked blocked for manual resolution; Factory never resets or overwrites them.
 

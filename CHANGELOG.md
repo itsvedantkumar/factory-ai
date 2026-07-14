@@ -4,6 +4,17 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-07-15
+
+### Added
+
+- Added OpenCode-style slash commands as the primary TUI navigation: `/workspace`, `/workspace add`, `/objective`, `/agent`, `/diff`, `/activity`, `/copy`, `/commands`, `/refresh`, `/help`, and `/quit`.
+- Added dynamic slash autocomplete for live workspace names, objective IDs, and agent IDs/roles.
+
+### Changed
+
+- Updated empty states, help, placeholder text, and sidebar hints to teach command-line navigation while retaining the sidebar as optional visual context.
+
 ## [2.5.0] - 2026-07-15
 
 ### Added

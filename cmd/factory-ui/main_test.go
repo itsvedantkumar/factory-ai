@@ -129,6 +129,80 @@ func TestEditorCompletesWorkspaceArguments(t *testing.T) {
 	}
 }
 
+func TestSlashWorkspaceCommandsSwitchAndOpenWorkspacePicker(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "alpha"}, {Name: "beta"}}
+	current.selectedWorkspace = "alpha"
+	current.editor.SetValue("/workspace beta")
+	updated, command := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if command != nil || current.selectedWorkspace != "beta" || current.editor.Value() != "" {
+		t.Fatalf("slash workspace switch failed: selected=%q editor=%q", current.selectedWorkspace, current.editor.Value())
+	}
+	current.editor.SetValue("/workspace")
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if current.modal != "workspaces" {
+		t.Fatalf("slash workspace picker did not open: %q", current.modal)
+	}
+}
+
+func TestSlashAgentAndDiffCommandsNavigateWithoutSidebar(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "app", Repository: "acme/app"}}
+	current.selectedWorkspace = "app"
+	current.selectedObjectiveID = "objective"
+	current.dashboard.Objectives = []objective{{ID: "objective", Repository: "acme/app", Tasks: []task{{ID: "T1", Role: "scout"}, {ID: "T2", Role: "builder"}}}}
+	current.ensureSelection()
+	current.editor.SetValue("/agent T2")
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if current.selectedAgentID != "T2" {
+		t.Fatalf("slash agent switch failed: %q", current.selectedAgentID)
+	}
+	current.editor.SetValue("/diff")
+	updated, command := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if command == nil || current.agentView != "diff" {
+		t.Fatal("slash diff did not start code inspection")
+	}
+}
+
+func TestPartialSlashCommandsAutocompleteAndPaletteReturnsFocus(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.editor.SetValue("/w")
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if current.editor.Value() != "/workspace" {
+		t.Fatalf("partial slash command did not autocomplete: %q", current.editor.Value())
+	}
+	current.editor.SetValue("/commands")
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if !current.showPalette || current.paletteIndex != 0 {
+		t.Fatal("slash command palette did not open from its first action")
+	}
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	current = updated.(model)
+	if current.showPalette || !current.editor.Focused() {
+		t.Fatal("closing slash command palette did not restore editor focus")
+	}
+}
+
+func TestSlashCopyCannotUsePatchWhileRefreshIsPending(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "app", Repository: "acme/app"}}
+	current.selectedWorkspace, current.selectedObjectiveID, current.selectedAgentID = "app", "objective", "T1"
+	current.dashboard.Objectives = []objective{{ID: "objective", Repository: "acme/app", Tasks: []task{{ID: "T1", Role: "builder"}}}}
+	current.agentView, current.agentPatchKey, current.agentPatch, current.agentPatchLoading = "diff", "objective:T1", "old patch", true
+	current.editor.SetValue("/copy")
+	updated, command := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if command != nil || !strings.Contains(current.notice, "Wait for /diff") {
+		t.Fatal("slash copy used a stale loading patch")
+	}
+}
+
 func TestWorkspaceCanBeSelectedFromDesktopPicker(t *testing.T) {
 	current := newModel(nil, "Factory AI", "Test")
 	current.width, current.height = 100, 30
@@ -555,7 +629,7 @@ func TestBeginnerHelpExplainsPrimaryWorkflow(t *testing.T) {
 	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyF1})
 	current = updated.(model)
 	rendered := current.View()
-	for _, expected := range []string{"Getting started", "Ctrl+W", "Ctrl+S", "Ctrl+G", "Ctrl+D", "Ctrl+Y"} {
+	for _, expected := range []string{"Getting started", "/workspace", "/workspace add", "/objective", "/agent", "/diff", "/copy"} {
 		if !strings.Contains(rendered, expected) {
 			t.Fatalf("help is missing %q: %q", expected, rendered)
 		}
