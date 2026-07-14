@@ -1,8 +1,35 @@
-import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const identifier = /^[A-Za-z0-9_-]{1,64}$/;
 const terminal = new Set(["succeeded", "failed", "cancelled"]);
+const timelineFields = new Set(["type", "phase", "occurredAt", "tool", "model", "role", "step", "attempt", "status", "inputTokens", "container"]);
+
+function timelineEvent(event) {
+  const result = {};
+  for (const [key, value] of Object.entries(event)) {
+    if (!timelineFields.has(key) || value === undefined || value === null) continue;
+    if (typeof value === "string") result[key] = value.slice(0, 500);
+    else if (typeof value === "number" && Number.isFinite(value)) result[key] = value;
+  }
+  return result;
+}
+
+async function readTailLines(file, maxBytes = 262_144) {
+  const handle = await open(file, "r");
+  try {
+    const metadata = await handle.stat();
+    const start = Math.max(0, metadata.size - maxBytes);
+    const buffer = Buffer.alloc(metadata.size - start);
+    await handle.read(buffer, 0, buffer.length, start);
+    let value = buffer.toString("utf8");
+    if (start > 0) {
+      const boundary = value.indexOf("\n");
+      value = boundary >= 0 ? value.slice(boundary + 1) : "";
+    }
+    return value.split("\n").filter(Boolean);
+  } finally { await handle.close(); }
+}
 
 export function isStaleActivity(activity, taskStatus, now = new Date(), staleSeconds = 120) {
   if (!activity?.occurredAt || terminal.has(taskStatus)) return false;
@@ -77,7 +104,7 @@ export class ActivityStore {
     try { files = await readdir(directory); } catch (error) { if (error.code === "ENOENT") return {}; throw error; }
     const result = {};
     for (const file of files.filter((name) => name.endsWith(".jsonl"))) {
-      const lines = (await readFile(path.join(directory, file), "utf8")).split("\n").filter(Boolean);
+      const lines = await readTailLines(path.join(directory, file));
       let latest;
       let retryCount = 0;
       let lastError;
@@ -90,6 +117,26 @@ export class ActivityStore {
         } catch {}
       }
       if (latest) result[file.slice(0, -6)] = { ...latest, retryCount, lastError };
+    }
+    return result;
+  }
+
+  async timelineObjective(objectiveId, { limitPerTask = 100 } = {}) {
+    if (!Number.isSafeInteger(limitPerTask) || limitPerTask < 1 || limitPerTask > 200) throw new Error("Activity timeline limit must be between 1 and 200");
+    const directory = this.directory(objectiveId);
+    let files;
+    try { files = await readdir(directory); } catch (error) { if (error.code === "ENOENT") return {}; throw error; }
+    const result = {};
+    for (const file of files.filter((name) => name.endsWith(".jsonl")).sort().slice(0, 50)) {
+      const lines = await readTailLines(path.join(directory, file));
+      const events = [];
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line);
+          if (event.type !== "telemetry.recorded") events.push(timelineEvent(event));
+        } catch {}
+      }
+      if (events.length > 0) result[file.slice(0, -6)] = events.slice(-limitPerTask);
     }
     return result;
   }

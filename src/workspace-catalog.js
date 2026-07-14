@@ -1,3 +1,4 @@
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -5,6 +6,13 @@ import { run } from "./process.js";
 
 const namePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const repositoryPattern = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const trustedGitPaths = new Set(["/usr/bin/git", "/opt/homebrew/bin/git", "/opt/local/bin/git", "/usr/local/bin/git"]);
+
+function trustedGitPath() {
+  if (process.env.FACTORY_GIT_PATH && trustedGitPaths.has(process.env.FACTORY_GIT_PATH)) return process.env.FACTORY_GIT_PATH;
+  for (const candidate of trustedGitPaths) if (existsSync(candidate)) return realpathSync(candidate);
+  throw new Error("Unable to locate a trusted absolute Git executable");
+}
 
 function repositoryFromRemote(remote) {
   const value = remote.trim().replace(/\.git$/, "");
@@ -20,6 +28,7 @@ export class WorkspaceCatalog {
     this.file = path.resolve(file);
     this.root = path.resolve(root);
     this.execute = execute;
+    this.git = trustedGitPath();
   }
 
   async load() {
@@ -89,7 +98,8 @@ export class WorkspaceCatalog {
     const workspaces = await this.load();
     const existing = workspaces.find((item) => item.name === workspaceName);
     if (existing && existing.repository !== repository) throw new Error(`Workspace name already exists: ${workspaceName}`);
-    const workspace = { name: workspaceName, repository, url: `https://github.com/${repository}.git`, localPath, baseBranch, importedAt: new Date().toISOString() };
+    const previous = workspaces.find((item) => item.name === workspaceName || item.repository === repository);
+    const workspace = { name: workspaceName, repository, url: `https://github.com/${repository}.git`, localPath, baseBranch, importedAt: new Date().toISOString(), ...(previous?.sync ? { sync: previous.sync } : {}) };
     await this.save([...workspaces.filter((item) => item.name !== workspaceName && item.repository !== repository), workspace]);
     return workspace;
   }
@@ -101,6 +111,93 @@ export class WorkspaceCatalog {
     if (!workspaces.some((item) => item.name === name)) throw new Error(`Unknown workspace: ${name}`);
     await this.save(workspaces.filter((item) => item.name !== name));
     return { removed: name, filesPreserved: true };
+  }
+
+  async setSync(name, enabled) {
+    return this.withLock(async () => {
+      const workspaces = await this.load();
+      const index = workspaces.findIndex((item) => item.name === name);
+      if (index < 0) throw new Error(`Unknown workspace: ${name}`);
+      workspaces[index] = {
+        ...workspaces[index],
+        sync: { ...workspaces[index].sync, enabled, lastStatus: enabled ? workspaces[index].sync?.lastStatus ?? "pending" : "disabled", lastError: undefined },
+      };
+      await this.save(workspaces);
+      return workspaces[index];
+    });
+  }
+
+  async syncEnabled() { return (await this.load()).filter((item) => item.sync?.enabled); }
+
+  async sync(name) {
+    return this.withLock(async () => {
+      const workspaces = await this.load();
+      const index = workspaces.findIndex((item) => item.name === name);
+      if (index < 0) throw new Error(`Unknown workspace: ${name}`);
+      const workspace = workspaces[index];
+      try {
+        const result = await this.syncUnlocked(workspace);
+        workspaces[index] = { ...workspace, sync: { ...workspace.sync, lastStatus: result.status, lastSyncedAt: new Date().toISOString(), lastError: undefined } };
+        await this.save(workspaces);
+        return { name, ...result };
+      } catch (error) {
+        workspaces[index] = { ...workspace, sync: { ...workspace.sync, lastStatus: "blocked", lastAttemptedAt: new Date().toISOString(), lastError: error.message.slice(0, 500) } };
+        await this.save(workspaces);
+        throw error;
+      }
+    });
+  }
+
+  async syncUnlocked(workspace) {
+    const localPath = await realpath(workspace.localPath);
+    if (localPath !== workspace.localPath) throw new Error(`Workspace path changed since import: ${workspace.name}`);
+    const metadata = await stat(localPath);
+    const git = (...args) => this.execute(this.git, ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", localPath, ...args], { timeoutMs: 300_000 });
+    const executableConfig = await this.execute(this.git, ["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", localPath, "config", "--local", "--name-only", "--get-regexp", "^(filter\\..*\\.(clean|smudge|process)|credential\\.|core\\.(hooksPath|fsmonitor|sshCommand)|remote\\..*\\.(uploadpack|receivepack)|url\\..*\\.insteadOf|protocol\\..*\\.allow|diff\\..*\\.command|merge\\..*\\.driver)$"], { timeoutMs: 60_000, allowExitCodes: [0, 1] });
+    if (executableConfig.stdout.trim()) throw new Error(`Workspace has executable local Git configuration; remove it before sync: ${workspace.name}`);
+    const remote = await git("remote", "get-url", "origin");
+    const remoteURL = remote.stdout.trim();
+    if (repositoryFromRemote(remoteURL) !== workspace.repository) throw new Error(`Workspace origin changed since import: ${workspace.name}`);
+    const branchResult = await git("symbolic-ref", "--short", "HEAD");
+    const branch = branchResult.stdout.trim();
+    if (!branch) throw new Error(`Workspace is on a detached HEAD: ${workspace.name}`);
+    if (branch !== workspace.baseBranch) throw new Error(`Workspace must be on ${workspace.baseBranch} to sync; current branch is ${branch}`);
+    const status = await git("status", "--porcelain", "--untracked-files=normal");
+    if (status.stdout.trim()) throw new Error(`Workspace has uncommitted changes; commit or stash them before sync: ${workspace.name}`);
+    const head = (await git("rev-parse", "HEAD")).stdout.trim();
+    if (!/^[a-f0-9]{40,64}$/.test(head)) throw new Error(`Unable to resolve workspace commit: ${workspace.name}`);
+    await git("fetch", remoteURL, `refs/heads/${workspace.baseBranch}:refs/remotes/origin/${workspace.baseBranch}`);
+    const remoteCommit = (await git("rev-parse", `origin/${workspace.baseBranch}`)).stdout.trim();
+    if (!/^[a-f0-9]{40,64}$/.test(remoteCommit)) throw new Error(`Unable to resolve GitHub commit: ${workspace.name}`);
+    const counts = await git("rev-list", "--left-right", "--count", `${head}...${remoteCommit}`);
+    const [ahead, behind] = counts.stdout.trim().split(/\s+/).map(Number);
+    if (![ahead, behind].every(Number.isSafeInteger)) throw new Error(`Unable to compare workspace with GitHub: ${workspace.name}`);
+    if (ahead > 0 && behind > 0) throw new Error(`Workspace and GitHub have diverged; reconcile them manually: ${workspace.name}`);
+    if (behind > 0) {
+      const changed = (await git("diff", "--name-only", "-z", `${head}..${remoteCommit}`)).stdout.split("\0").filter(Boolean);
+      const ignored = (await git("status", "--ignored=matching", "--porcelain=v1", "-z", "--untracked-files=all")).stdout.split("\0").filter((entry) => entry.startsWith("!! ")).map((entry) => entry.slice(3).replace(/\/$/, ""));
+      const collisions = changed.filter((file) => ignored.some((ignoredPath) => file === ignoredPath || file.startsWith(`${ignoredPath}/`) || ignoredPath.startsWith(`${file}/`)));
+      if (collisions.length > 0) throw new Error(`GitHub changes would overwrite ignored local files: ${collisions.slice(0, 5).join(", ")}`);
+    }
+    const revalidate = async () => {
+      const currentPath = await realpath(workspace.localPath);
+      const currentMetadata = await stat(currentPath);
+      if (currentPath !== localPath || currentMetadata.dev !== metadata.dev || currentMetadata.ino !== metadata.ino) throw new Error(`Workspace path changed during sync: ${workspace.name}`);
+      const currentRemote = (await git("remote", "get-url", "origin")).stdout.trim();
+      if (currentRemote !== remoteURL) throw new Error(`Workspace origin changed during sync: ${workspace.name}`);
+      if ((await git("symbolic-ref", "--short", "HEAD")).stdout.trim() !== branch || (await git("rev-parse", "HEAD")).stdout.trim() !== head) throw new Error(`Workspace changed during sync; retry: ${workspace.name}`);
+    };
+    if (behind > 0) {
+      await revalidate();
+      await git("merge", "--ff-only", remoteCommit);
+      return { status: "pulled", ahead: 0, behind };
+    }
+    if (ahead > 0) {
+      await revalidate();
+      await git("push", remoteURL, `${head}:refs/heads/${workspace.baseBranch}`);
+      return { status: "pushed", ahead, behind: 0 };
+    }
+    return { status: "synced", ahead: 0, behind: 0 };
   }
 }
 

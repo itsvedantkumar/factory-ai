@@ -33,6 +33,9 @@ usage() {
     '  workspace import SOURCE    Import a path or owner/repository' \
     '  workspace show NAME        Show workspace details' \
     '  workspace remove NAME      Remove a workspace from the catalog' \
+    '  workspace sync enable NAME Enable automatic committed-change sync' \
+    '  workspace sync now NAME    Synchronize a workspace immediately' \
+    '  workspace sync status      Show synchronization state' \
     '  submit WORKSPACE OBJECTIVE Start a new objective' \
     '  issue OWNER/REPO NUMBER     Process a GitHub issue' \
     '  init PATH                  Add Factory instructions to a project' \
@@ -73,7 +76,7 @@ usage() {
     '  acp REQUEST.json           Run an ACP request' \
     '  extension verify ...       Verify a signed extension' \
     '' \
-    'TUI: Ctrl+K commands, Ctrl+W workspaces, Ctrl+G agents, click rows.'
+    'TUI: Ctrl+K commands, Ctrl+W workspaces, Ctrl+S objectives, Ctrl+G agents.'
 }
 
 command=${1:-ui}

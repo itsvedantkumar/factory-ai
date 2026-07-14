@@ -86,6 +86,7 @@ export async function loadLocalState(root) {
     try {
       const state = JSON.parse(await readFile(file, "utf8"));
       state.activity = await activityStore.latestObjective(state.objective?.id ?? entry.name);
+      state.activityTimeline = await activityStore.timelineObjective(state.objective?.id ?? entry.name);
       states.push(state);
     } catch (error) {
       if (error.code !== "ENOENT") warnings.push(`${file}: ${error.message}`);
@@ -100,6 +101,7 @@ function taskState(task, results) {
 }
 
 export function aggregateDashboard({ states = [], queue = {}, cost = null, runtime = {}, hostUptimeSeconds = 0, warnings = [], now = new Date() }) {
+  let remainingActivityEvents = 1000;
   const objectives = states.map((state) => {
     const results = state.results ?? {};
     const objectiveTerminal = ["complete", "failed", "blocked", "cancelled", "denied", "expired"].includes(state.status);
@@ -109,6 +111,9 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
       const liveActivity = state.activity?.[task.id];
       const activity = liveActivity ?? ((resultState === "queued" || state.status === "planning") ? { type: "task.queued", occurredAt: results[task.id]?.queuedAt ?? state.createdAt } : undefined);
       const stateValue = resultState === "queued" && liveActivity ? (liveActivity.type?.endsWith(".failed") ? "retrying" : "running") : resultState;
+      const eventLimit = Math.min(50, remainingActivityEvents);
+      const retainedEvents = eventLimit > 0 ? (state.activityTimeline?.[task.id] ?? []).slice(-eventLimit) : [];
+      remainingActivityEvents = Math.max(0, remainingActivityEvents - retainedEvents.length);
       return ({
       id: task.id,
       role: task.role,
@@ -125,6 +130,7 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
       activityAgeSeconds: activity?.occurredAt ? Math.max(0, (now.getTime() - new Date(activity.occurredAt).getTime()) / 1000) : null,
       retries: activity?.retryCount ?? 0,
       lastError: activity?.lastError,
+      events: retainedEvents,
     });
     });
     return {

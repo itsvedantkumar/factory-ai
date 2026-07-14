@@ -37,3 +37,17 @@ test("serializes watchdog actions and heartbeat appends with a task lock", async
   await Promise.all([watchdog, heartbeat]);
   assert.deepEqual(order, ["watchdog-start", "watchdog-end", "heartbeat"]);
 });
+
+test("exports bounded privacy-filtered per-agent activity timelines", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-activity-"));
+  const store = new ActivityStore(root);
+  await store.append("objective-1", "build", { type: "model.request.started", model: "gpt", prompt: "must not leave host" });
+  await store.append("objective-1", "build", { type: "telemetry.recorded", telemetry: { attributes: { secret: "no" } } });
+  await store.append("objective-1", "build", { type: "tool.started", tool: "read_file", phase: "reading", error: "token=secret-value" });
+  await store.append("objective-1", "build", { type: "tool.completed", tool: "read_file", phase: "building" });
+  const timeline = await store.timelineObjective("objective-1", { limitPerTask: 2 });
+  assert.deepEqual(timeline.build.map((event) => event.type), ["tool.started", "tool.completed"]);
+  assert.equal(timeline.build[0].tool, "read_file");
+  assert.equal("prompt" in timeline.build[0], false);
+  assert.equal(JSON.stringify(timeline).includes("secret"), false);
+});

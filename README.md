@@ -73,6 +73,9 @@ factory ui
 | `factory workspace list` | List named workspaces, local paths, branches, and repositories |
 | `factory workspace show NAME` | Inspect one workspace |
 | `factory workspace remove NAME` | Remove a catalog entry without deleting repository files |
+| `factory workspace sync enable NAME` | Opt into automatic two-way committed-change sync |
+| `factory workspace sync now NAME` | Push local commits or fast-forward from GitHub immediately |
+| `factory workspace sync status` | Show scheduler and per-workspace synchronization state |
 | `factory submit WORKSPACE "OBJECTIVE"` | Send one CEO objective using a workspace name; owner/repo remains supported |
 | `factory update check` | Compare the installed CLI with the latest stable npm release |
 | `factory update now` | Run verified Azure updater immediately and update the local CLI |
@@ -96,7 +99,9 @@ factory ui
 | `factory secret set NAME` | Store a credential in global Key Vault |
 | `factory github connect ORG` | Connect GitHub Enterprise credentials |
 
-Inside `factory ui`, the active workspace appears in the context sidebar; Dashboard, Objectives, and Agents are scoped to it. The interface follows the proven MIT-licensed OpenCode Go TUI model: a 70/30 detail/context split, persistent bottom command editor, contextual autocomplete, viewport, and modal command palette. Click workspace, tab, and agent rows directly. Use `Ctrl+K` for actions, `Ctrl+W` for workspace focus, `Ctrl+G` for agent focus, `Tab` or Enter for completions, `PgUp/PgDn` for output, and `Ctrl+C` to quit. Selecting an agent shows its role, model, objective, phase, current activity/tool, update time, retries, and errors.
+Inside `factory ui`, the main pane is an OpenCode-style objective stream and the right sidebar is the selected objective's sub-agent roster. Click an agent to inspect its retained lifecycle, model, tool, retry, phase, timestamp, and error events. Use `Ctrl+W` for workspaces, `Ctrl+S` for objectives, `Ctrl+G` for agents, `Ctrl+K` for commands, and `PgUp/PgDn` for the stream. Contextual autocomplete remains available with Tab or Enter.
+
+Two-way workspace sync is explicit and non-destructive. Enabling it installs a per-user launchd or systemd timer that runs every minute. Clean default branches fast-forward from GitHub or push ordinary local commits without force. Dirty worktrees, detached heads, changed origins, non-default branches, divergence, conflicts, and rejected pushes are marked blocked for manual resolution; Factory never resets or overwrites them.
 
 ## Architecture
 

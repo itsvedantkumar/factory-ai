@@ -25,24 +25,33 @@ import (
 )
 
 type activity struct {
-	Type       string `json:"type"`
-	Tool       string `json:"tool"`
-	Phase      string `json:"phase"`
-	OccurredAt string `json:"occurredAt"`
-	RetryCount int    `json:"retryCount"`
-	LastError  string `json:"lastError"`
+	Type        string `json:"type"`
+	Tool        string `json:"tool"`
+	Phase       string `json:"phase"`
+	OccurredAt  string `json:"occurredAt"`
+	Model       string `json:"model"`
+	Role        string `json:"role"`
+	Status      string `json:"status"`
+	Error       string `json:"error"`
+	Container   string `json:"container"`
+	Step        int    `json:"step"`
+	Attempt     int    `json:"attempt"`
+	InputTokens int    `json:"inputTokens"`
+	RetryCount  int    `json:"retryCount"`
+	LastError   string `json:"lastError"`
 }
 
 type task struct {
-	ID        string    `json:"id"`
-	Role      string    `json:"role"`
-	Title     string    `json:"title"`
-	Model     string    `json:"model"`
-	State     string    `json:"state"`
-	Stale     bool      `json:"stale"`
-	Activity  *activity `json:"activity"`
-	Retries   int       `json:"retries"`
-	LastError string    `json:"lastError"`
+	ID        string     `json:"id"`
+	Role      string     `json:"role"`
+	Title     string     `json:"title"`
+	Model     string     `json:"model"`
+	State     string     `json:"state"`
+	Stale     bool       `json:"stale"`
+	Activity  *activity  `json:"activity"`
+	Retries   int        `json:"retries"`
+	LastError string     `json:"lastError"`
+	Events    []activity `json:"events"`
 }
 
 type objective struct {
@@ -66,6 +75,12 @@ type workspace struct {
 	Repository string `json:"repository"`
 	LocalPath  string `json:"localPath"`
 	BaseBranch string `json:"baseBranch"`
+	Sync       struct {
+		Enabled      bool   `json:"enabled"`
+		LastStatus   string `json:"lastStatus"`
+		LastSyncedAt string `json:"lastSyncedAt"`
+		LastError    string `json:"lastError"`
+	} `json:"sync"`
 }
 
 type usage struct {
@@ -99,12 +114,20 @@ type dashboard struct {
 	Warnings []string `json:"warnings"`
 }
 
+type schedulerStatus struct {
+	Enabled   bool   `json:"enabled"`
+	Scheduler string `json:"scheduler"`
+	Known     bool   `json:"-"`
+	Error     string `json:"-"`
+}
+
 type snapshotMsg struct {
-	dashboard    dashboard
-	logs         string
-	workspaces   []workspace
-	workspaceErr string
-	err          error
+	dashboard     dashboard
+	logs          string
+	workspaces    []workspace
+	workspaceErr  string
+	syncScheduler schedulerStatus
+	err           error
 }
 type tickMsg time.Time
 type commandResultMsg struct {
@@ -113,31 +136,38 @@ type commandResultMsg struct {
 }
 
 type model struct {
-	client            *azblob.Client
-	factoryName       string
-	purpose           string
-	width             int
-	height            int
-	tab               int
-	scroll            int
-	dashboard         dashboard
-	logs              string
-	workspaces        []workspace
-	workspaceErr      string
-	selectedWorkspace string
-	loading           bool
-	err               error
-	commandOutput     string
-	commandHistory    []string
-	historyIndex      int
-	editor            textarea.Model
-	content           viewport.Model
-	showPalette       bool
-	paletteIndex      int
-	completionIndex   int
-	workspaceFocus    bool
-	agentFocus        bool
-	selectedAgent     int
+	client              *azblob.Client
+	factoryName         string
+	purpose             string
+	width               int
+	height              int
+	tab                 int
+	scroll              int
+	dashboard           dashboard
+	logs                string
+	workspaces          []workspace
+	workspaceErr        string
+	syncScheduler       schedulerStatus
+	selectedWorkspace   string
+	loading             bool
+	err                 error
+	commandOutput       string
+	commandHistory      []string
+	historyIndex        int
+	editor              textarea.Model
+	content             viewport.Model
+	showPalette         bool
+	paletteIndex        int
+	completionIndex     int
+	workspaceFocus      bool
+	agentFocus          bool
+	selectedAgent       int
+	selectedObjectiveID string
+	selectedAgentID     string
+	modal               string
+	modalIndex          int
+	modalSelectedID     string
+	followTail          bool
 }
 
 type agentRecord struct {
@@ -154,6 +184,9 @@ type paletteAction struct {
 var paletteActions = []paletteAction{
 	{title: "New objective", description: "Submit work to the selected workspace", prefix: "submit {workspace} "},
 	{title: "Import workspace", description: "Add a local path or owner/repository", prefix: "workspace import "},
+	{title: "Enable Git sync", description: "Opt in selected workspace to two-way sync", prefix: "workspace sync enable {workspace}"},
+	{title: "Sync workspace now", description: "Push or fast-forward committed changes", prefix: "workspace sync now {workspace}"},
+	{title: "Disable Git sync", description: "Stop automatic sync for selected workspace", prefix: "workspace sync disable {workspace}"},
 	{title: "Set secret", description: "Store a secret in Azure Key Vault", prefix: "secret set "},
 	{title: "Approve release", description: "Approve a pending release gate", prefix: "approval approve "},
 	{title: "Deny release", description: "Reject a pending release gate", prefix: "approval deny "},
@@ -167,6 +200,12 @@ type completion struct {
 	description string
 }
 
+type pickerItem struct {
+	id          string
+	title       string
+	description string
+}
+
 var commandCompletions = []completion{
 	{value: "help", description: "Show the command reference"},
 	{value: "setup", description: "Deploy or repair Factory AI"},
@@ -175,6 +214,10 @@ var commandCompletions = []completion{
 	{value: "workspace import ", description: "Import a path or owner/repository"},
 	{value: "workspace show ", description: "Show workspace details"},
 	{value: "workspace remove ", description: "Remove a workspace"},
+	{value: "workspace sync status", description: "Show two-way sync status"},
+	{value: "workspace sync now ", description: "Sync committed changes now"},
+	{value: "workspace sync enable ", description: "Enable automatic two-way sync"},
+	{value: "workspace sync disable ", description: "Disable automatic two-way sync"},
 	{value: "models show", description: "Show model routes"},
 	{value: "models set ", description: "Set a role model"},
 	{value: "models reset ", description: "Reset a role model"},
@@ -209,7 +252,7 @@ var (
 	muted  = lipgloss.Color("#7F8B99")
 	panel  = lipgloss.Color("#15191F")
 	border = lipgloss.Color("#303743")
-	tabs   = []string{"Dashboard", "Objectives", "Agents", "Settings"}
+	tabs   = []string{"Session", "Objectives", "Dashboard", "Settings"}
 	ansi   = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?)`)
 )
 
@@ -376,6 +419,7 @@ func fetchCmd(client *azblob.Client) tea.Cmd {
 		}
 		logData, _ := download(client, "logs.txt")
 		var workspaces []workspace
+		var syncScheduler schedulerStatus
 		workspaceErr := ""
 		if output, commandError := exec.Command("factory", "workspace", "list").Output(); commandError == nil {
 			if decodeError := json.Unmarshal(output, &workspaces); decodeError != nil {
@@ -384,7 +428,18 @@ func fetchCmd(client *azblob.Client) tea.Cmd {
 		} else {
 			workspaceErr = commandError.Error()
 		}
-		return snapshotMsg{dashboard: board, logs: string(logData), workspaces: workspaces, workspaceErr: workspaceErr}
+		if output, commandError := exec.Command("factory", "workspace", "sync", "status").Output(); commandError == nil {
+			var status struct {
+				Scheduler schedulerStatus `json:"scheduler"`
+			}
+			if json.Unmarshal(output, &status) == nil {
+				syncScheduler = status.Scheduler
+				syncScheduler.Known = true
+			}
+		} else {
+			syncScheduler.Error = commandError.Error()
+		}
+		return snapshotMsg{dashboard: board, logs: string(logData), workspaces: workspaces, workspaceErr: workspaceErr, syncScheduler: syncScheduler}
 	}
 }
 
@@ -405,6 +460,7 @@ func newModel(client *azblob.Client, factoryName, purpose string) model {
 		factoryName: factoryName,
 		purpose:     purpose,
 		loading:     true,
+		followTail:  true,
 		editor:      editor,
 		content:     viewport.New(0, 0),
 	}
@@ -421,6 +477,9 @@ func (m model) completions() []completion {
 			completion{value: "submit " + item.Name + " ", description: "Submit an objective"},
 			completion{value: "workspace show " + item.Name, description: "Show workspace details"},
 			completion{value: "workspace remove " + item.Name, description: "Remove workspace"},
+			completion{value: "workspace sync now " + item.Name, description: "Sync committed changes"},
+			completion{value: "workspace sync enable " + item.Name, description: "Enable automatic sync"},
+			completion{value: "workspace sync disable " + item.Name, description: "Disable automatic sync"},
 		)
 	}
 	result := make([]completion, 0, 5)
@@ -468,12 +527,124 @@ func (m model) workspaceWindow(maxLines int) (int, int) {
 	return start, end
 }
 
+func (m model) modalItems() []pickerItem {
+	items := []pickerItem{}
+	switch m.modal {
+	case "workspaces":
+		for _, workspace := range m.workspaces {
+			sync := "sync off"
+			if workspace.Sync.Enabled {
+				sync = "sync " + workspace.Sync.LastStatus
+			}
+			items = append(items, pickerItem{id: workspace.Name, title: workspace.Name, description: workspace.Repository + " · " + sync})
+		}
+	case "objectives":
+		objectives := m.visibleObjectives()
+		for index := len(objectives) - 1; index >= 0; index-- {
+			items = append(items, pickerItem{id: objectives[index].ID, title: objectives[index].Objective, description: objectives[index].Status + " · " + objectives[index].ID})
+		}
+	case "agents":
+		if objective := m.selectedObjective(); objective != nil {
+			for _, agent := range objective.Tasks {
+				phase := agent.State
+				if agent.Activity != nil && agent.Activity.Phase != "" {
+					phase = agent.Activity.Phase
+				}
+				items = append(items, pickerItem{id: agent.ID, title: agent.Role + " · " + agent.Title, description: phase + " · " + agent.Model})
+			}
+		}
+	}
+	return items
+}
+
+func (m *model) openModal(kind string) {
+	m.modal = kind
+	m.modalIndex = 0
+	items := m.modalItems()
+	selectedID := ""
+	if kind == "workspaces" {
+		selectedID = m.selectedWorkspace
+	} else if kind == "objectives" {
+		selectedID = m.selectedObjectiveID
+	} else if kind == "agents" {
+		selectedID = m.selectedAgentID
+	}
+	for index, item := range items {
+		if item.id == selectedID {
+			m.modalIndex = index
+			break
+		}
+	}
+	if len(items) > 0 {
+		m.modalSelectedID = items[m.modalIndex].id
+	} else {
+		m.modalSelectedID = ""
+	}
+	m.editor.Blur()
+}
+
+func (m *model) reconcileModal() {
+	if m.modal == "" {
+		return
+	}
+	items := m.modalItems()
+	for index, item := range items {
+		if item.id == m.modalSelectedID {
+			m.modalIndex = index
+			return
+		}
+	}
+	if len(items) == 0 {
+		m.modalIndex = 0
+		m.modalSelectedID = ""
+		return
+	}
+	m.modalIndex = min(m.modalIndex, len(items)-1)
+	m.modalSelectedID = items[m.modalIndex].id
+}
+
+func (m *model) chooseModalItem() tea.Cmd {
+	items := m.modalItems()
+	if len(items) == 0 {
+		m.modal = ""
+		return m.editor.Focus()
+	}
+	m.reconcileModal()
+	item := items[m.modalIndex]
+	switch m.modal {
+	case "workspaces":
+		for index := range m.workspaces {
+			if m.workspaces[index].Name == item.id {
+				m.selectWorkspace(index)
+				break
+			}
+		}
+	case "objectives":
+		m.selectedObjectiveID = item.id
+		m.selectedAgentID = ""
+		m.ensureSelection()
+		m.syncViewport()
+		m.content.GotoBottom()
+	case "agents":
+		m.selectedAgentID = item.id
+		m.ensureSelection()
+		m.syncViewport()
+		m.content.GotoBottom()
+	}
+	m.modal = ""
+	m.modalSelectedID = ""
+	return m.editor.Focus()
+}
+
 func (m *model) selectWorkspace(index int) {
 	if index < 0 || index >= len(m.workspaces) {
 		return
 	}
 	m.selectedWorkspace = m.workspaces[index].Name
 	m.selectedAgent = 0
+	m.selectedObjectiveID = ""
+	m.selectedAgentID = ""
+	m.ensureSelection()
 	m.scroll = 0
 	m.syncViewport()
 	m.content.GotoTop()
@@ -488,11 +659,29 @@ func (m *model) ensureAgentVisible() {
 	}
 }
 
+func (m model) sidebarAgentStartY() int {
+	localLine := 2
+	if workspace := m.selected(); workspace != nil {
+		localLine = 3
+		if workspace.Sync.LastSyncedAt != "" {
+			localLine++
+		}
+		if workspace.Sync.LastError != "" {
+			localLine++
+		}
+	}
+	if m.selectedObjective() != nil {
+		localLine++
+	}
+	return 2 + localLine + 3
+}
+
 func (m *model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	editorHeight, topHeight, leftWidth, rightWidth := m.layoutDimensions()
 	if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
 		var command tea.Cmd
 		m.content, command = m.content.Update(msg)
+		m.followTail = false
 		return command
 	}
 	if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
@@ -512,35 +701,23 @@ func (m *model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			position = end + 2
 		}
 	}
-	if rightWidth > 0 && msg.X >= leftWidth && msg.Y >= 4 && msg.Y < 1+topHeight {
-		start, end := m.workspaceWindow(topHeight - 2)
-		row := msg.Y - 4
-		if m.workspaceErr != "" {
-			row--
+	agentStartY := m.sidebarAgentStartY()
+	if rightWidth > 0 && msg.X >= leftWidth && msg.Y >= agentStartY && msg.Y < 1+topHeight {
+		records := m.agentRecords()
+		available := max(((topHeight-2)-8)/2, 1)
+		start := 0
+		if m.selectedAgent >= available {
+			start = m.selectedAgent - available + 1
 		}
-		if start > 0 {
-			row--
-		}
-		index := start + row
-		if row >= 0 && index < end {
-			m.selectWorkspace(index)
-			m.workspaceFocus = true
-			m.agentFocus = false
+		index := start + (msg.Y-agentStartY)/2
+		if index >= 0 && index < len(records) {
+			m.selectedAgent = index
+			m.selectedAgentID = records[index].task.ID
+			m.agentFocus = true
+			m.workspaceFocus = false
 			m.editor.Blur()
-		}
-		return nil
-	}
-	if m.tab == 2 && msg.X < leftWidth && msg.Y >= 3 && msg.Y < 1+topHeight {
-		bodyLine := m.content.YOffset + msg.Y - 3
-		if bodyLine >= 2 {
-			index := (bodyLine - 2) / 2
-			if index < len(m.agentRecords()) {
-				m.selectedAgent = index
-				m.agentFocus = true
-				m.workspaceFocus = false
-				m.editor.Blur()
-				m.syncViewport()
-			}
+			m.syncViewport()
+			m.content.GotoBottom()
 		}
 		return nil
 	}
@@ -593,6 +770,7 @@ func (m *model) setEditorValue(value string) {
 		value = strings.ReplaceAll(value, "{workspace}", selected.Name)
 	} else {
 		value = strings.ReplaceAll(value, "{workspace} ", "")
+		value = strings.ReplaceAll(value, "{workspace}", "")
 	}
 	m.editor.SetValue(value)
 	m.editor.CursorEnd()
@@ -605,11 +783,35 @@ func (m model) Init() tea.Cmd { return tea.Batch(fetchCmd(m.client), tickCmd(), 
 func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
 	case tea.MouseMsg:
-		if m.showPalette {
+		if m.showPalette || m.modal != "" {
 			return m, nil
 		}
 		return m, m.handleMouse(msg)
 	case tea.KeyMsg:
+		if m.modal != "" {
+			items := m.modalItems()
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.modal = ""
+				return m, m.editor.Focus()
+			case "up", "k":
+				if m.modalIndex > 0 {
+					m.modalIndex--
+				}
+			case "down", "j":
+				if m.modalIndex < len(items)-1 {
+					m.modalIndex++
+				}
+			case "enter":
+				return m, m.chooseModalItem()
+			}
+			if m.modalIndex >= 0 && m.modalIndex < len(items) {
+				m.modalSelectedID = items[m.modalIndex].id
+			}
+			return m, nil
+		}
 		if m.showPalette {
 			switch msg.String() {
 			case "ctrl+c":
@@ -642,18 +844,21 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			case "up", "k":
 				if m.selectedAgent > 0 {
 					m.selectedAgent--
+					m.selectedAgentID = m.agentRecords()[m.selectedAgent].task.ID
 					m.syncViewport()
-					m.ensureAgentVisible()
+					m.content.GotoBottom()
 				}
 			case "down", "j":
 				if m.selectedAgent < len(m.agentRecords())-1 {
 					m.selectedAgent++
+					m.selectedAgentID = m.agentRecords()[m.selectedAgent].task.ID
 					m.syncViewport()
-					m.ensureAgentVisible()
+					m.content.GotoBottom()
 				}
 			case "pgup", "pgdown", "home", "end":
 				var command tea.Cmd
 				m.content, command = m.content.Update(msg)
+				m.followTail = msg.String() == "end"
 				return m, command
 			}
 			return m, nil
@@ -680,17 +885,13 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.paletteIndex = 0
 			return m, nil
 		case "ctrl+w":
-			_, _, _, rightWidth := m.layoutDimensions()
-			if len(m.workspaces) > 0 && rightWidth > 0 {
-				m.workspaceFocus = true
-				m.editor.Blur()
-			}
+			m.openModal("workspaces")
+			return m, nil
+		case "ctrl+s":
+			m.openModal("objectives")
 			return m, nil
 		case "ctrl+g":
-			if m.tab == 2 && len(m.agentRecords()) > 0 {
-				m.agentFocus = true
-				m.editor.Blur()
-			}
+			m.openModal("agents")
 			return m, nil
 		case "tab":
 			if m.acceptCompletion() {
@@ -745,6 +946,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case "pgup", "pgdown", "ctrl+home", "ctrl+end":
 			var command tea.Cmd
 			m.content, command = m.content.Update(msg)
+			m.followTail = msg.String() == "ctrl+end"
 			return m, command
 		case "up":
 			if items := m.completions(); len(items) > 0 {
@@ -811,15 +1013,20 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		if msg.err == nil {
-			m.dashboard, m.logs, m.workspaces, m.workspaceErr = msg.dashboard, msg.logs, msg.workspaces, msg.workspaceErr
+			m.dashboard, m.logs, m.workspaces, m.workspaceErr, m.syncScheduler = msg.dashboard, msg.logs, msg.workspaces, msg.workspaceErr, msg.syncScheduler
 			if len(m.workspaces) == 0 {
 				m.selectedWorkspace = ""
 			} else if m.selected() == nil {
 				m.selectedWorkspace = m.workspaces[0].Name
 			}
+			m.ensureSelection()
+			m.reconcileModal()
 		}
 		m.resize()
 		m.syncViewport()
+		if m.followTail && m.tab == 0 {
+			m.content.GotoBottom()
+		}
 	case commandResultMsg:
 		m.loading = false
 		m.err = nil
@@ -910,6 +1117,104 @@ func (m model) visibleObjectives() []objective {
 	return result
 }
 
+func (m model) selectedObjective() *objective {
+	workspace := m.selected()
+	if workspace == nil {
+		return nil
+	}
+	for index := range m.dashboard.Objectives {
+		if m.dashboard.Objectives[index].ID == m.selectedObjectiveID && normalizeRepository(m.dashboard.Objectives[index].Repository) == normalizeRepository(workspace.Repository) {
+			return &m.dashboard.Objectives[index]
+		}
+	}
+	return nil
+}
+
+func (m *model) ensureSelection() {
+	objectives := m.visibleObjectives()
+	if len(objectives) == 0 {
+		m.selectedObjectiveID = ""
+		m.selectedAgentID = ""
+		m.selectedAgent = 0
+		return
+	}
+	if m.selectedObjective() == nil {
+		m.selectedObjectiveID = objectives[len(objectives)-1].ID
+	}
+	selected := m.selectedObjective()
+	if selected == nil || len(selected.Tasks) == 0 {
+		m.selectedAgentID = ""
+		m.selectedAgent = 0
+		return
+	}
+	for index, agent := range selected.Tasks {
+		if agent.ID == m.selectedAgentID {
+			m.selectedAgent = index
+			return
+		}
+	}
+	m.selectedAgent = 0
+	m.selectedAgentID = selected.Tasks[0].ID
+}
+
+func (m model) sessionStream() string {
+	selected := m.selectedObjective()
+	if selected == nil {
+		return "NEW SESSION\n\nDescribe an objective in the command editor or press ctrl+s to select an existing objective."
+	}
+	var agent *task
+	for index := range selected.Tasks {
+		if selected.Tasks[index].ID == m.selectedAgentID {
+			agent = &selected.Tasks[index]
+			break
+		}
+	}
+	var value strings.Builder
+	fmt.Fprintf(&value, "%s  %s\n%s\n", badge(selected.Status), clean(selected.Objective), lipgloss.NewStyle().Foreground(muted).Render(clean(selected.ID)))
+	if agent == nil {
+		value.WriteString("\nNo sub-agents have been created for this objective yet.\n")
+		return value.String()
+	}
+	fmt.Fprintf(&value, "\n%s\n%s · %s · %s\n\n", lipgloss.NewStyle().Foreground(accent).Bold(true).Render(clean(agent.Title)), clean(agent.Role), clean(agent.Model), badge(agent.State))
+	events := append([]activity(nil), agent.Events...)
+	if len(events) == 0 && agent.Activity != nil {
+		events = append(events, *agent.Activity)
+	}
+	sort.SliceStable(events, func(left, right int) bool { return events[left].OccurredAt < events[right].OccurredAt })
+	if len(events) == 0 {
+		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("Waiting for agent activity...") + "\n")
+	}
+	for _, event := range events {
+		timestamp := event.OccurredAt
+		if parsed, err := time.Parse(time.RFC3339, event.OccurredAt); err == nil {
+			timestamp = parsed.Local().Format("15:04:05")
+		}
+		label := event.Type
+		if event.Tool != "" {
+			label += "  " + event.Tool
+		}
+		fmt.Fprintf(&value, "%s  %s\n", lipgloss.NewStyle().Foreground(muted).Render(timestamp), lipgloss.NewStyle().Bold(true).Render(clean(label)))
+		detail := event.Phase
+		if event.Model != "" {
+			detail += " · " + event.Model
+		}
+		if event.Attempt > 0 {
+			detail += fmt.Sprintf(" · attempt %d", event.Attempt)
+		}
+		if detail != "" {
+			fmt.Fprintf(&value, "          %s\n", lipgloss.NewStyle().Foreground(muted).Render(clean(strings.TrimPrefix(detail, " · "))))
+		}
+		if event.Error != "" {
+			fmt.Fprintf(&value, "          %s\n", lipgloss.NewStyle().Foreground(danger).Render(clean(event.Error)))
+		}
+		value.WriteString("\n")
+	}
+	if agent.LastError != "" {
+		fmt.Fprintf(&value, "%s %s\n", lipgloss.NewStyle().Foreground(danger).Bold(true).Render("LAST ERROR"), clean(agent.LastError))
+	}
+	return value.String()
+}
+
 func (m model) overview() string {
 	cost := "unavailable"
 	if m.dashboard.Cost != nil {
@@ -972,7 +1277,11 @@ func (m model) objectives() string {
 
 func (m model) agentRecords() []agentRecord {
 	records := []agentRecord{}
-	for _, item := range m.visibleObjectives() {
+	items := []objective{}
+	if selected := m.selectedObjective(); selected != nil {
+		items = append(items, *selected)
+	}
+	for _, item := range items {
 		for _, agent := range item.Tasks {
 			records = append(records, agentRecord{objective: item, task: agent})
 		}
@@ -1041,30 +1350,56 @@ func (m model) agents() string {
 
 func (m model) sidebar(maxLines int) string {
 	var value strings.Builder
-	value.WriteString(lipgloss.NewStyle().Bold(true).Render("WORKSPACES") + "\n\n")
-	if m.workspaceErr != "" {
-		value.WriteString(lipgloss.NewStyle().Foreground(danger).Render("Catalog unavailable") + "\n")
+	value.WriteString(lipgloss.NewStyle().Bold(true).Render("SESSION") + "\n")
+	if workspace := m.selected(); workspace != nil {
+		sync := "sync off"
+		if workspace.Sync.Enabled {
+			sync = "sync " + workspace.Sync.LastStatus
+		}
+		fmt.Fprintf(&value, "%s\n%s\n", lipgloss.NewStyle().Foreground(accent).Bold(true).Render(clean(workspace.Name)), lipgloss.NewStyle().Foreground(muted).Render(clean(sync)))
+		if workspace.Sync.LastSyncedAt != "" {
+			fmt.Fprintf(&value, "%s\n", lipgloss.NewStyle().Foreground(muted).Render(trim("at "+workspace.Sync.LastSyncedAt, 22)))
+		}
+		if workspace.Sync.LastError != "" {
+			fmt.Fprintf(&value, "%s\n", lipgloss.NewStyle().Foreground(danger).Render(trim(workspace.Sync.LastError, 22)))
+		}
+	} else {
+		value.WriteString("No workspace\n")
 	}
-	if len(m.workspaces) == 0 {
-		value.WriteString("No workspaces\n\nctrl+k to import")
+	if objective := m.selectedObjective(); objective != nil {
+		fmt.Fprintf(&value, "%s · %s\n", badge(objective.Status), trim(objective.ID, 18))
 	}
-	start, end := m.workspaceWindow(maxLines)
-	if start > 0 {
-		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("  ↑ more") + "\n")
+	value.WriteString("\n" + lipgloss.NewStyle().Bold(true).Render("AGENTS") + "\n\n")
+	records := m.agentRecords()
+	available := max((maxLines-8)/2, 1)
+	start := 0
+	if m.selectedAgent >= available {
+		start = m.selectedAgent - available + 1
 	}
-	for _, item := range m.workspaces[start:end] {
+	end := min(start+available, len(records))
+	for index := start; index < end; index++ {
+		record := records[index]
 		marker := "  "
 		style := lipgloss.NewStyle().Foreground(muted)
-		if item.Name == m.selectedWorkspace {
+		if record.task.ID == m.selectedAgentID {
 			marker = "› "
 			style = style.Foreground(accent).Bold(true)
 		}
-		value.WriteString(style.Render(marker+trim(item.Name, 20)) + "\n")
+		state := record.task.State
+		if record.task.Stale {
+			state = "stale"
+		}
+		fmt.Fprintf(&value, "%s%s %s\n", marker, style.Render(trim(record.task.Role, 10)), badge(state))
+		phase := record.task.Title
+		if record.task.Activity != nil && record.task.Activity.Phase != "" {
+			phase = record.task.Activity.Phase
+		}
+		fmt.Fprintf(&value, "  %s\n", lipgloss.NewStyle().Foreground(muted).Render(trim(phase, 22)))
 	}
-	if end < len(m.workspaces) {
-		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("  ↓ more") + "\n")
+	if len(records) == 0 {
+		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("Waiting for plan...") + "\n")
 	}
-	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("click or ctrl+w focus\n↑/↓ select"))
+	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("ctrl+w workspace\nctrl+s objective\nctrl+g agent"))
 	return value.String()
 }
 
@@ -1072,6 +1407,15 @@ func (m model) settings() string {
 	var value strings.Builder
 	value.WriteString("RUNTIME\n")
 	fmt.Fprintf(&value, "  Name       %s\n  Purpose    %s\n  Storage    Azure Blob\n  Refresh    15 seconds\n\n", clean(m.factoryName), clean(m.purpose))
+	scheduler := m.syncScheduler.Scheduler
+	if !m.syncScheduler.Known {
+		scheduler = "unknown"
+	}
+	fmt.Fprintf(&value, "WORKSPACE SYNC\n  Scheduler  %s\n  Enabled    %t\n  Status     workspace sync status\n", clean(scheduler), m.syncScheduler.Enabled)
+	if m.syncScheduler.Error != "" {
+		fmt.Fprintf(&value, "  Error      %s\n", trim(m.syncScheduler.Error, 70))
+	}
+	value.WriteString("\n")
 	value.WriteString("MODELS\n  models show\n  models set ROLE PROVIDER/MODEL\n\nSECRETS (values hidden)\n")
 	for _, item := range m.dashboard.Secrets {
 		fmt.Fprintf(&value, "  ● %-36s %s\n", clean(item.Name), clean(item.Updated))
@@ -1095,11 +1439,11 @@ func (m model) body() string {
 	}
 	switch m.tab {
 	case 0:
-		return m.overview()
+		return m.sessionStream()
 	case 1:
 		return m.objectives()
 	case 2:
-		return m.agents()
+		return m.overview()
 	default:
 		return m.settings()
 	}
@@ -1107,9 +1451,26 @@ func (m model) body() string {
 
 func (m model) View() string {
 	width, height := max(m.width, 1), max(m.height, 1)
+	if width < 20 || height < 8 {
+		rows := []string{trim(strings.ToUpper(clean(m.factoryName)), width), trim("COMMAND "+m.editor.Value(), width), trim("ctrl+k commands · ctrl+c quit", width)}
+		if m.modal != "" {
+			rows[1] = trim("SELECT "+m.modal, width)
+			items := m.modalItems()
+			if len(items) > 0 {
+				rows[2] = trim(items[min(m.modalIndex, len(items)-1)].title, width)
+			}
+		} else if m.showPalette {
+			rows[1] = "COMMANDS"
+			rows[2] = trim(paletteActions[min(m.paletteIndex, len(paletteActions)-1)].title, width)
+		}
+		return strings.Join(rows[:min(len(rows), height)], "\n")
+	}
 	headerText := strings.ToUpper(clean(m.factoryName))
 	if selected := m.selected(); selected != nil {
 		headerText += "  / " + clean(selected.Name)
+	}
+	if objective := m.selectedObjective(); objective != nil {
+		headerText += "  / " + clean(objective.ID)
 	}
 	header := lipgloss.NewStyle().Width(width).Bold(true).Foreground(accent).Render(trim(headerText, width))
 	editorHeight, topHeight, leftWidth, rightWidth := m.layoutDimensions()
@@ -1137,7 +1498,7 @@ func (m model) View() string {
 	mainArea := content
 	if rightWidth > 0 {
 		sidebarBorder := border
-		if m.workspaceFocus {
+		if m.agentFocus {
 			sidebarBorder = accent
 		}
 		sidebar := lipgloss.NewStyle().
@@ -1171,26 +1532,73 @@ func (m model) View() string {
 		BorderForeground(accent).
 		Padding(0, 1).
 		Render(strings.Join(editorRows, "\n"))
-	status := "tab/enter complete  ctrl+k commands  ctrl+w workspaces  ctrl+g agents  click rows  pgup/pgdn"
+	status := "ctrl+k commands  ctrl+w workspace  ctrl+s objective  ctrl+g agent  pgup/pgdn stream"
 	if m.loading {
 		status = "Refreshing Factory state...  " + status
+	}
+	if generated, err := time.Parse(time.RFC3339, m.dashboard.GeneratedAt); err == nil {
+		status = fmt.Sprintf("snapshot %ds ago  %s", max(int(time.Since(generated).Seconds()), 0), status)
 	}
 	if m.err != nil {
 		status = lipgloss.NewStyle().Foreground(danger).Render(trim(m.err.Error(), max(width-1, 1)))
 	}
 	base := lipgloss.JoinVertical(lipgloss.Left, header, mainArea, editor, lipgloss.NewStyle().Width(width).Foreground(muted).Render(trim(status, width)))
+	if m.modal != "" {
+		titles := map[string]string{"workspaces": "Select workspace", "objectives": "Select objective", "agents": "Select agent"}
+		rows := []string{lipgloss.NewStyle().Foreground(accent).Bold(true).Render(titles[m.modal]), ""}
+		modalWidth := min(68, max(width-8, 16))
+		items := m.modalItems()
+		if len(items) == 0 {
+			rows = append(rows, lipgloss.NewStyle().Foreground(muted).Render("Nothing available"))
+		}
+		visible := max(height-8, 1)
+		start := 0
+		if m.modalIndex >= visible {
+			start = m.modalIndex - visible + 1
+		}
+		end := min(start+visible, len(items))
+		if start > 0 {
+			rows = append(rows, lipgloss.NewStyle().Foreground(muted).Render("↑ more"))
+		}
+		for index := start; index < end; index++ {
+			item := items[index]
+			style := lipgloss.NewStyle().Width(modalWidth).Padding(0, 1)
+			if index == m.modalIndex {
+				style = style.Background(accent).Foreground(lipgloss.Color("#07130D")).Bold(true)
+			}
+			rows = append(rows, style.Render(trim(item.title+"  "+item.description, max(modalWidth-2, 1))))
+		}
+		if end < len(items) {
+			rows = append(rows, lipgloss.NewStyle().Foreground(muted).Render("↓ more"))
+		}
+		popup := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(1, 2).Render(strings.Join(rows, "\n"))
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, popup)
+	}
 	if !m.showPalette {
 		return base
 	}
 	var rows []string
 	rows = append(rows, lipgloss.NewStyle().Foreground(accent).Bold(true).Render("Commands"), "")
 	paletteWidth := min(54, max(width-8, 12))
-	for index, action := range paletteActions {
+	visible := max(height-8, 1)
+	start := 0
+	if m.paletteIndex >= visible {
+		start = m.paletteIndex - visible + 1
+	}
+	end := min(start+visible, len(paletteActions))
+	if start > 0 {
+		rows = append(rows, lipgloss.NewStyle().Foreground(muted).Render("↑ more"))
+	}
+	for index := start; index < end; index++ {
+		action := paletteActions[index]
 		style := lipgloss.NewStyle().Width(paletteWidth).Padding(0, 1)
 		if index == m.paletteIndex {
 			style = style.Background(accent).Foreground(lipgloss.Color("#07130D")).Bold(true)
 		}
 		rows = append(rows, style.Render(trim(action.title+"  "+action.description, max(paletteWidth-2, 1))))
+	}
+	if end < len(paletteActions) {
+		rows = append(rows, lipgloss.NewStyle().Foreground(muted).Render("↓ more"))
 	}
 	popup := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(1, 2).Render(strings.Join(rows, "\n"))
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, popup)

@@ -114,3 +114,30 @@ test("does not report unfinished tasks stale after their objective is terminal",
   assert.equal(dashboard.health.status, "healthy");
   assert.equal(dashboard.health.staleAgents, 0);
 });
+
+test("exposes retained activity events on their matching dashboard agents", () => {
+  const timelineState = structuredClone(state);
+  timelineState.activityTimeline = {
+    "test-one": [
+      { type: "agent.started", phase: "starting", occurredAt: "2026-07-12T10:00:00.000Z" },
+      { type: "tool.started", phase: "testing", tool: "npm", occurredAt: "2026-07-12T10:01:00.000Z" },
+    ],
+  };
+  const dashboard = aggregateDashboard({ states: [timelineState], now: new Date("2026-07-12T10:03:00.000Z") });
+  assert.deepEqual(dashboard.objectives[0].tasks[1].events, timelineState.activityTimeline["test-one"]);
+});
+
+test("bounds exported activity events across the whole dashboard", () => {
+  const bounded = structuredClone(state);
+  bounded.tasks = [];
+  bounded.results = {};
+  bounded.activityTimeline = {};
+  for (let taskIndex = 0; taskIndex < 25; taskIndex += 1) {
+    const id = `task-${taskIndex}`;
+    bounded.tasks.push({ id, role: "builder", title: id, dependsOn: [], complexity: "simple" });
+    bounded.results[id] = { status: "queued" };
+    bounded.activityTimeline[id] = Array.from({ length: 50 }, (_, eventIndex) => ({ type: "agent.heartbeat", step: eventIndex }));
+  }
+  const dashboard = aggregateDashboard({ states: [bounded], now: new Date("2026-07-12T10:03:00.000Z") });
+  assert.equal(dashboard.objectives[0].tasks.reduce((count, task) => count + task.events.length, 0), 1000);
+});

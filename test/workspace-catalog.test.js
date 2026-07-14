@@ -33,3 +33,75 @@ test("resolves direct repositories for backwards compatibility and validates rem
   assert.throws(() => workspaceInternals.repositoryFromRemote("https://gitlab.com/acme/app.git"), /github.com/);
   await assert.rejects(() => catalog.resolve("missing"), /Unknown workspace/);
 });
+
+async function syncCatalog(outputs = {}) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-sync-"));
+  const repo = path.join(root, "repo"); await mkdir(repo);
+  const calls = [];
+  const execute = async (command, args) => {
+    calls.push([command, args]);
+    const joined = args.join(" ");
+    if (joined.includes("remote get-url")) return { code: 0, stdout: "https://github.com/acme/app.git\n", stderr: "" };
+    if (joined.includes("symbolic-ref --short HEAD")) return { code: 0, stdout: "main\n", stderr: "" };
+    if (joined.includes("status --porcelain")) return { code: 0, stdout: outputs.status ?? "", stderr: "" };
+    if (joined.includes("status --ignored")) return { code: 0, stdout: outputs.ignored ?? "", stderr: "" };
+    if (joined.includes("diff --name-only")) return { code: 0, stdout: outputs.changed ?? "", stderr: "" };
+    if (joined.includes("rev-parse HEAD")) return { code: 0, stdout: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", stderr: "" };
+    if (joined.includes("rev-parse origin/main")) return { code: 0, stdout: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n", stderr: "" };
+    if (joined.includes("rev-list --left-right --count")) return { code: 0, stdout: outputs.counts ?? "0\t0\n", stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const catalog = new WorkspaceCatalog({ file: path.join(root, "catalog.json"), root: path.join(root, "managed"), execute });
+  await catalog.save([{ name: "app", repository: "acme/app", localPath: await realpath(repo), baseBranch: "main" }]);
+  return { catalog, calls };
+}
+
+test("workspace sync fast-forwards clean branches that are behind GitHub", async () => {
+  const { catalog, calls } = await syncCatalog({ counts: "0\t2\n" });
+  const result = await catalog.sync("app");
+  assert.equal(result.status, "pulled");
+  assert.ok(calls.some(([, args]) => args.includes("--ff-only")));
+  assert.equal((await catalog.resolve("app")).sync.lastStatus, "pulled");
+});
+
+test("workspace sync pushes clean local commits without force", async () => {
+  const { catalog, calls } = await syncCatalog({ counts: "3\t0\n" });
+  const result = await catalog.sync("app");
+  assert.equal(result.status, "pushed");
+  const push = calls.find(([, args]) => args.includes("push"));
+  assert.deepEqual(push?.[1].slice(-2), ["https://github.com/acme/app.git", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:refs/heads/main"]);
+  assert.ok(!push[1].some((value) => value.includes("force")));
+  assert.ok(push[1].includes("core.hooksPath=/dev/null"));
+});
+
+test("workspace sync blocks upstream paths that would overwrite ignored local files", async () => {
+  const { catalog, calls } = await syncCatalog({ counts: "0\t1\n", changed: "secrets/key\0", ignored: "!! secrets/\0" });
+  await assert.rejects(() => catalog.sync("app"), /ignored local files/);
+  assert.ok(!calls.some(([, args]) => args.includes("merge")));
+});
+
+test("workspace sync blocks upstream ancestors of ignored local files", async () => {
+  const { catalog, calls } = await syncCatalog({ counts: "0\t1\n", changed: "secrets\0", ignored: "!! secrets/key\0" });
+  await assert.rejects(() => catalog.sync("app"), /ignored local files/);
+  assert.ok(!calls.some(([, args]) => args.includes("merge")));
+});
+
+test("workspace sync blocks dirty and divergent work without modifying it", async () => {
+  const dirty = await syncCatalog({ status: " M src/app.js\n" });
+  await assert.rejects(() => dirty.catalog.sync("app"), /uncommitted changes/);
+  assert.ok(!dirty.calls.some(([, args]) => args.includes("push") || args.includes("merge")));
+
+  const diverged = await syncCatalog({ counts: "1\t1\n" });
+  await assert.rejects(() => diverged.catalog.sync("app"), /diverged/);
+  assert.ok(!diverged.calls.some(([, args]) => args.includes("push") || args.includes("merge")));
+});
+
+test("workspace sync permission is explicit and persisted per workspace", async () => {
+  const { catalog } = await syncCatalog();
+  const enabled = await catalog.setSync("app", true);
+  assert.equal(enabled.sync.enabled, true);
+  assert.equal((await catalog.syncEnabled()).length, 1);
+  const disabled = await catalog.setSync("app", false);
+  assert.equal(disabled.sync.enabled, false);
+  assert.equal((await catalog.syncEnabled()).length, 0);
+});

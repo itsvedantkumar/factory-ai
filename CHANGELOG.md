@@ -4,6 +4,20 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-07-14
+
+### Added
+
+- Added explicit per-workspace two-way GitHub synchronization with one-minute launchd/systemd scheduling, immediate sync, status, and TUI controls.
+- Added privacy-filtered bounded per-agent activity timelines to operator snapshots.
+- Added an OpenCode-style session stream, agent roster, and stable workspace, objective, and agent picker dialogs.
+
+### Security
+
+- Sync never force-pushes or resets and blocks dirty, detached, divergent, origin-changed, path-changed, ignored-path collision, and executable local Git-configuration states.
+- Scheduler activation and consent are rollback-safe, use trusted absolute executables, suppress unbounded logs, and preserve prior scheduler state on failed updates.
+- Activity exports use strict field allowlists, bounded tail reads, per-agent limits, and a global dashboard event budget.
+
 ## [2.2.1] - 2026-07-14
 
 ### Added
