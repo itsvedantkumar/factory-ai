@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -128,6 +129,15 @@ type snapshotMsg struct {
 	workspaceErr  string
 	syncScheduler schedulerStatus
 	err           error
+	requestID     int
+}
+type cachedSnapshot struct {
+	StorageAccount string          `json:"storageAccount"`
+	Dashboard      dashboard       `json:"dashboard"`
+	Logs           string          `json:"logs"`
+	Workspaces     []workspace     `json:"workspaces"`
+	WorkspaceErr   string          `json:"workspaceError,omitempty"`
+	SyncScheduler  schedulerStatus `json:"syncScheduler"`
 }
 type tickMsg time.Time
 type commandResultMsg struct {
@@ -143,6 +153,7 @@ type agentDiffMsg struct {
 	err         error
 	requestID   int
 }
+type clipboardMsg struct{ err error }
 
 type model struct {
 	client              *azblob.Client
@@ -184,6 +195,9 @@ type model struct {
 	agentPatchKey       string
 	agentPatchLoading   bool
 	agentDiffRequest    int
+	notice              string
+	refreshRequest      int
+	storageAccount      string
 }
 
 type agentRecord struct {
@@ -407,6 +421,28 @@ func fetchAgentDiffCmd(objectiveID, taskID string, requestID int) tea.Cmd {
 	}
 }
 
+func copyToClipboardCmd(value string) tea.Cmd {
+	return func() tea.Msg {
+		var command *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			command = exec.Command("pbcopy")
+		case "windows":
+			command = exec.Command("clip")
+		default:
+			if executable, err := exec.LookPath("wl-copy"); err == nil {
+				command = exec.Command(executable)
+			} else if executable, err := exec.LookPath("xclip"); err == nil {
+				command = exec.Command(executable, "-selection", "clipboard")
+			} else {
+				return clipboardMsg{err: fmt.Errorf("install wl-copy or xclip for clipboard support")}
+			}
+		}
+		command.Stdin = strings.NewReader(value)
+		return clipboardMsg{err: command.Run()}
+	}
+}
+
 func interactiveFactoryProcess(args []string) tea.Cmd {
 	var transcript synchronizedBuffer
 	command := exec.Command("factory", args...)
@@ -454,44 +490,113 @@ func download(client *azblob.Client, name string) ([]byte, error) {
 	return io.ReadAll(response.Body)
 }
 
-func fetchCmd(client *azblob.Client) tea.Cmd {
+func operatorCacheFile(account string) string {
+	if value := os.Getenv("FACTORY_UI_CACHE_FILE"); value != "" {
+		return value
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "factory-ai", fmt.Sprintf("operator-snapshot-%s.json", account))
+}
+
+func writeOperatorCache(account string, message snapshotMsg) {
+	value := cachedSnapshot{StorageAccount: account, Dashboard: message.dashboard, Logs: message.logs, Workspaces: message.workspaces, WorkspaceErr: message.workspaceErr, SyncScheduler: message.syncScheduler}
+	data, err := json.Marshal(value)
+	if err != nil || len(data) > 2_000_000 {
+		return
+	}
+	file := operatorCacheFile(account)
+	if os.MkdirAll(filepath.Dir(file), 0o700) != nil {
+		return
+	}
+	temporary := fmt.Sprintf("%s.%d.tmp", file, os.Getpid())
+	if os.WriteFile(temporary, data, 0o600) == nil {
+		_ = os.Rename(temporary, file)
+	} else {
+		_ = os.Remove(temporary)
+	}
+}
+
+func readOperatorCache(account string) (snapshotMsg, bool) {
+	file := operatorCacheFile(account)
+	metadata, err := os.Lstat(file)
+	if err != nil {
+		return snapshotMsg{}, false
+	}
+	age := time.Since(metadata.ModTime())
+	if !metadata.Mode().IsRegular() || metadata.Mode().Perm()&0o077 != 0 || metadata.Size() > 2_000_000 || age < -5*time.Minute || age > 24*time.Hour {
+		if age > 24*time.Hour {
+			_ = os.Remove(file)
+		}
+		return snapshotMsg{}, false
+	}
+	data, err := os.ReadFile(file)
+	if err != nil {
+		return snapshotMsg{}, false
+	}
+	var value cachedSnapshot
+	if json.Unmarshal(data, &value) != nil {
+		return snapshotMsg{}, false
+	}
+	if value.StorageAccount != account {
+		return snapshotMsg{}, false
+	}
+	return snapshotMsg{dashboard: value.Dashboard, logs: value.Logs, workspaces: value.Workspaces, workspaceErr: value.WorkspaceErr, syncScheduler: value.SyncScheduler}, true
+}
+
+func fetchCmd(client *azblob.Client, requestID int) tea.Cmd {
 	return func() tea.Msg {
-		data, err := download(client, "dashboard.json")
-		if err != nil {
-			return snapshotMsg{err: err}
-		}
 		var board dashboard
-		if err := json.Unmarshal(data, &board); err != nil {
-			return snapshotMsg{err: err}
-		}
-		logData, _ := download(client, "logs.txt")
+		var dashboardErr error
+		var logData []byte
 		var workspaces []workspace
 		var syncScheduler schedulerStatus
 		workspaceErr := ""
-		if output, commandError := exec.Command("factory", "workspace", "list").Output(); commandError == nil {
-			if decodeError := json.Unmarshal(output, &workspaces); decodeError != nil {
-				workspaceErr = decodeError.Error()
+		var group sync.WaitGroup
+		group.Add(4)
+		go func() {
+			defer group.Done()
+			data, err := download(client, "dashboard.json")
+			if err == nil {
+				err = json.Unmarshal(data, &board)
 			}
-		} else {
-			workspaceErr = commandError.Error()
+			dashboardErr = err
+		}()
+		go func() { defer group.Done(); logData, _ = download(client, "logs.txt") }()
+		go func() {
+			defer group.Done()
+			if output, commandError := exec.Command("factory", "workspace", "list").Output(); commandError == nil {
+				if decodeError := json.Unmarshal(output, &workspaces); decodeError != nil {
+					workspaceErr = decodeError.Error()
+				}
+			} else {
+				workspaceErr = commandError.Error()
+			}
+		}()
+		go func() {
+			defer group.Done()
+			if output, commandError := exec.Command("factory", "workspace", "sync", "status").Output(); commandError == nil {
+				var status struct {
+					Scheduler schedulerStatus `json:"scheduler"`
+				}
+				if json.Unmarshal(output, &status) == nil {
+					syncScheduler = status.Scheduler
+					syncScheduler.Known = true
+				}
+			} else {
+				syncScheduler.Error = commandError.Error()
+			}
+		}()
+		group.Wait()
+		if dashboardErr != nil {
+			return snapshotMsg{err: dashboardErr, requestID: requestID}
 		}
-		if output, commandError := exec.Command("factory", "workspace", "sync", "status").Output(); commandError == nil {
-			var status struct {
-				Scheduler schedulerStatus `json:"scheduler"`
-			}
-			if json.Unmarshal(output, &status) == nil {
-				syncScheduler = status.Scheduler
-				syncScheduler.Known = true
-			}
-		} else {
-			syncScheduler.Error = commandError.Error()
-		}
-		return snapshotMsg{dashboard: board, logs: string(logData), workspaces: workspaces, workspaceErr: workspaceErr, syncScheduler: syncScheduler}
+		message := snapshotMsg{dashboard: board, logs: string(logData), workspaces: workspaces, workspaceErr: workspaceErr, syncScheduler: syncScheduler, requestID: requestID}
+		return message
 	}
 }
 
 func tickCmd() tea.Cmd {
-	return tea.Tick(15*time.Second, func(value time.Time) tea.Msg { return tickMsg(value) })
+	return tea.Tick(60*time.Second, func(value time.Time) tea.Msg { return tickMsg(value) })
 }
 
 func newModel(client *azblob.Client, factoryName, purpose string) model {
@@ -503,13 +608,14 @@ func newModel(client *azblob.Client, factoryName, purpose string) model {
 	editor.SetHeight(1)
 	editor.Focus()
 	return model{
-		client:      client,
-		factoryName: factoryName,
-		purpose:     purpose,
-		loading:     true,
-		followTail:  true,
-		editor:      editor,
-		content:     viewport.New(0, 0),
+		client:         client,
+		factoryName:    factoryName,
+		purpose:        purpose,
+		loading:        true,
+		followTail:     true,
+		editor:         editor,
+		content:        viewport.New(0, 0),
+		refreshRequest: 1,
 	}
 }
 
@@ -854,7 +960,9 @@ func (m *model) setEditorValue(value string) {
 	m.completionIndex = 0
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(fetchCmd(m.client), tickCmd(), textarea.Blink) }
+func (m model) Init() tea.Cmd {
+	return tea.Batch(fetchCmd(m.client, m.refreshRequest), tickCmd(), textarea.Blink)
+}
 
 func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := message.(type) {
@@ -864,12 +972,25 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.handleMouse(msg)
 	case tea.KeyMsg:
+		m.notice = ""
+		if msg.String() == "f1" {
+			if m.modal == "help" {
+				m.modal = ""
+				return m, m.editor.Focus()
+			}
+			m.modal = "help"
+			m.showPalette = false
+			m.agentFocus = false
+			m.workspaceFocus = false
+			m.editor.Blur()
+			return m, nil
+		}
 		if m.modal != "" {
 			items := m.modalItems()
 			switch msg.String() {
 			case "ctrl+c":
 				return m, tea.Quit
-			case "esc":
+			case "esc", "f1":
 				m.modal = ""
 				return m, m.editor.Focus()
 			case "a":
@@ -964,6 +1085,12 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
+		case "f1":
+			m.modal = "help"
+			m.modalIndex = 0
+			m.modalSelectedID = ""
+			m.editor.Blur()
+			return m, nil
 		case "ctrl+k":
 			m.showPalette = true
 			m.paletteIndex = 0
@@ -987,6 +1114,13 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			m.agentPatchLoading = true
 			m.syncViewport()
 			return m, fetchAgentDiffCmd(objective.ID, m.selectedAgentID, m.agentDiffRequest)
+		case "ctrl+y":
+			objective := m.selectedObjective()
+			if objective == nil || m.agentView != "diff" || m.agentPatchKey != objective.ID+":"+m.selectedAgentID || m.agentPatch == "" {
+				m.notice = "Open an agent code diff with Ctrl+D before copying"
+				return m, nil
+			}
+			return m, copyToClipboardCmd(clean(m.agentPatch))
 		case "ctrl+a":
 			m.agentView = "activity"
 			m.syncViewport()
@@ -1041,7 +1175,8 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "ctrl+r":
 			m.loading = true
-			return m, fetchCmd(m.client)
+			m.refreshRequest++
+			return m, fetchCmd(m.client, m.refreshRequest)
 		case "pgup", "pgdown", "ctrl+home", "ctrl+end":
 			var command tea.Cmd
 			m.content, command = m.content.Update(msg)
@@ -1109,6 +1244,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.resize()
 		m.syncViewport()
 	case snapshotMsg:
+		if msg.requestID != 0 && msg.requestID != m.refreshRequest {
+			return m, nil
+		}
 		m.loading = false
 		m.err = msg.err
 		if msg.err == nil {
@@ -1120,6 +1258,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.ensureSelection()
 			m.reconcileModal()
+			writeOperatorCache(m.storageAccount, msg)
 		}
 		m.resize()
 		m.syncViewport()
@@ -1145,7 +1284,8 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.syncViewport()
 		m.content.GotoBottom()
-		return m, fetchCmd(m.client)
+		m.refreshRequest++
+		return m, fetchCmd(m.client, m.refreshRequest)
 	case agentDiffMsg:
 		objective := m.selectedObjective()
 		if objective == nil || msg.objectiveID != objective.ID || msg.taskID != m.selectedAgentID || msg.requestID != m.agentDiffRequest {
@@ -1165,10 +1305,17 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.syncViewport()
 		m.content.GotoTop()
+	case clipboardMsg:
+		if msg.err != nil {
+			m.notice = "Copy failed: " + msg.err.Error()
+		} else {
+			m.notice = "Agent code copied to clipboard"
+		}
 	case tickMsg:
 		if !m.loading {
 			m.loading = true
-			return m, tea.Batch(fetchCmd(m.client), tickCmd())
+			m.refreshRequest++
+			return m, tea.Batch(fetchCmd(m.client, m.refreshRequest), tickCmd())
 		}
 		return m, tickCmd()
 	}
@@ -1530,14 +1677,14 @@ func (m model) sidebar(maxLines int) string {
 	if len(records) == 0 {
 		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("Waiting for plan...") + "\n")
 	}
-	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("ctrl+w workspace\nctrl+s objective\nctrl+g agent"))
+	value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("Ctrl+W workspace\nCtrl+S objective\nCtrl+G agent\nCtrl+D code · Ctrl+Y copy\nF1 help"))
 	return value.String()
 }
 
 func (m model) settings() string {
 	var value strings.Builder
 	value.WriteString("RUNTIME\n")
-	fmt.Fprintf(&value, "  Name       %s\n  Purpose    %s\n  Storage    Azure Blob\n  Refresh    15 seconds\n\n", clean(m.factoryName), clean(m.purpose))
+	fmt.Fprintf(&value, "  Name       %s\n  Purpose    %s\n  Storage    Azure Blob\n  Refresh    60 seconds (Ctrl+R anytime)\n\n", clean(m.factoryName), clean(m.purpose))
 	scheduler := m.syncScheduler.Scheduler
 	if !m.syncScheduler.Known {
 		scheduler = "unknown"
@@ -1663,9 +1810,12 @@ func (m model) View() string {
 		BorderForeground(accent).
 		Padding(0, 1).
 		Render(strings.Join(editorRows, "\n"))
-	status := "ctrl+k commands  ctrl+w workspace  ctrl+s objective  ctrl+g agent  ctrl+d code  ctrl+a activity"
+	status := "F1 help  Ctrl+W workspace  Ctrl+S objective  Ctrl+G agent  Ctrl+D code  Ctrl+Y copy"
 	if m.loading {
 		status = "Refreshing Factory state...  " + status
+	}
+	if m.notice != "" {
+		status = m.notice + "  " + status
 	}
 	if generated, err := time.Parse(time.RFC3339, m.dashboard.GeneratedAt); err == nil {
 		status = fmt.Sprintf("snapshot %ds ago  %s", max(int(time.Since(generated).Seconds()), 0), status)
@@ -1675,6 +1825,32 @@ func (m model) View() string {
 	}
 	base := lipgloss.JoinVertical(lipgloss.Left, header, mainArea, editor, lipgloss.NewStyle().Width(width).Foreground(muted).Render(trim(status, width)))
 	if m.modal != "" {
+		if m.modal == "help" {
+			help := []string{
+				lipgloss.NewStyle().Foreground(accent).Bold(true).Render("Getting started"),
+				"",
+				"1. Ctrl+W  Choose or add a workspace",
+				"2. Ctrl+K  Choose New objective, then describe the work",
+				"3. Ctrl+S  Switch objectives",
+				"4. Ctrl+G  Choose a sub-agent",
+				"5. Ctrl+D  View that agent's code diff",
+				"6. Ctrl+Y  Copy the visible code diff",
+				"7. Ctrl+A  Return to agent activity",
+				"",
+				"Ctrl+K commands · PgUp/PgDn scroll · Ctrl+R refresh",
+				"Esc or F1 closes help",
+			}
+			maxWidth := max(min(width-8, 72), 12)
+			visible := max(height-6, 1)
+			if len(help) > visible {
+				help = append(help[:max(visible-1, 0)], "... F1 closes help")
+			}
+			for index := range help {
+				help[index] = trim(help[index], max(maxWidth-4, 1))
+			}
+			popup := lipgloss.NewStyle().Width(maxWidth).Border(lipgloss.RoundedBorder()).BorderForeground(accent).Padding(1, 2).Render(strings.Join(help, "\n"))
+			return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, popup)
+		}
 		titles := map[string]string{"workspaces": "Select workspace", "objectives": "Select objective", "agents": "Select agent"}
 		rows := []string{lipgloss.NewStyle().Foreground(accent).Bold(true).Render(titles[m.modal]), ""}
 		modalWidth := min(68, max(width-8, 16))
@@ -1751,6 +1927,15 @@ func main() {
 		panic(err)
 	}
 	application := newModel(client, config["FACTORY_NAME"], config["FACTORY_PURPOSE"])
+	application.storageAccount = account
+	if cached, ok := readOperatorCache(account); ok {
+		application.dashboard, application.logs, application.workspaces = cached.dashboard, cached.logs, cached.workspaces
+		application.workspaceErr, application.syncScheduler = cached.workspaceErr, cached.syncScheduler
+		if len(application.workspaces) > 0 {
+			application.selectedWorkspace = application.workspaces[0].Name
+			application.ensureSelection()
+		}
+	}
 	if application.factoryName == "" {
 		application.factoryName = "Factory AI"
 	}

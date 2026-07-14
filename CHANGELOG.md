@@ -4,6 +4,23 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-07-15
+
+### Added
+
+- Added a responsive beginner help overlay with a numbered workspace-to-agent workflow and globally available F1 shortcut.
+- Added `Ctrl+Y` clipboard copying for sanitized visible agent patches.
+- Added an account-isolated 24-hour warm snapshot cache for immediate TUI rendering.
+
+### Changed
+
+- Parallelized dashboard, logs, catalog, and sync-status refreshes and aligned automatic polling with the one-minute server snapshot cadence.
+- Factory-generated project context is tracked with a strict local marker and excluded per generated file, while user-owned context and linked worktrees remain untouched.
+
+### Fixed
+
+- Eliminated the self-inflicted uncommitted-workspace sync error caused by generated `AGENTS.md` and `.agent-factory` files.
+
 ## [2.4.2] - 2026-07-15
 
 ### Added

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { WorkspaceCatalog } from "./workspace-catalog.js";
 import { WorkspaceSyncScheduler } from "./workspace-sync-scheduler.js";
-import { initializeProject } from "./project-init.js";
+import { excludeLocalProjectContext, initializeProject, supportsLocalProjectContext } from "./project-init.js";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -19,7 +19,11 @@ async function syncAll(catalog) {
 export async function runWorkspaceCLI(args, {
   catalog = new WorkspaceCatalog(),
   scheduler = new WorkspaceSyncScheduler(),
-  initialize = (localPath) => initializeProject(localPath, path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "templates")),
+  initialize = async (localPath) => {
+    if (!(await supportsLocalProjectContext(localPath))) return;
+    await initializeProject(localPath, path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "templates"));
+    await excludeLocalProjectContext(localPath);
+  },
   progress = () => {},
 } = {}) {
   const [action = "list", source, ...rest] = args;

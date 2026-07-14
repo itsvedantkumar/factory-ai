@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,6 +16,20 @@ func TestCleanRemovesTerminalControlSequences(t *testing.T) {
 	value := clean("safe\x1b]52;c;clipboard\x07\x1b[31mred\x1b[0m\x00")
 	if value != "safered" || strings.ContainsRune(value, '\x1b') {
 		t.Fatalf("unexpected sanitized value %q", value)
+	}
+}
+
+func TestOperatorSnapshotCacheProvidesImmediateWarmState(t *testing.T) {
+	t.Setenv("FACTORY_UI_CACHE_FILE", filepath.Join(t.TempDir(), "snapshot.json"))
+	message := snapshotMsg{workspaces: []workspace{{Name: "app", Repository: "acme/app"}}}
+	message.dashboard.GeneratedAt = time.Now().UTC().Format(time.RFC3339)
+	writeOperatorCache("accountone", message)
+	cached, ok := readOperatorCache("accountone")
+	if !ok || len(cached.workspaces) != 1 || cached.workspaces[0].Name != "app" {
+		t.Fatalf("warm cache did not round-trip: %#v", cached)
+	}
+	if _, ok := readOperatorCache("accounttwo"); ok {
+		t.Fatal("operator cache leaked across storage accounts")
 	}
 }
 
@@ -237,6 +253,15 @@ func TestSelectedAgentCanSwitchBetweenActivityAndCodeDiff(t *testing.T) {
 	current = updated.(model)
 	if rendered := current.sessionStream(); !strings.Contains(rendered, "CODE DIFF") || !strings.Contains(rendered, "+code") {
 		t.Fatalf("agent diff is not visible: %q", rendered)
+	}
+	updated, command = current.Update(tea.KeyMsg{Type: tea.KeyCtrlY})
+	current = updated.(model)
+	if command == nil {
+		t.Fatal("ctrl+y did not create a clipboard command")
+	}
+	updated, _ = current.Update(clipboardMsg{})
+	if updated.(model).notice != "Agent code copied to clipboard" {
+		t.Fatal("clipboard success was not visible")
 	}
 	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
 	current = updated.(model)
@@ -503,6 +528,12 @@ func TestInterfaceFitsNarrowTerminalsAndPalette(t *testing.T) {
 		if lipgloss.Width(rendered) > current.width || lipgloss.Height(rendered) > current.height {
 			t.Fatalf("autocomplete rendered %dx%d in terminal %dx%d", lipgloss.Width(rendered), lipgloss.Height(rendered), current.width, current.height)
 		}
+		current.modal = "help"
+		rendered = current.View()
+		if lipgloss.Width(rendered) > current.width || lipgloss.Height(rendered) > current.height {
+			t.Fatalf("help rendered %dx%d in terminal %dx%d", lipgloss.Width(rendered), lipgloss.Height(rendered), current.width, current.height)
+		}
+		current.modal = ""
 	}
 }
 
@@ -515,5 +546,22 @@ func TestGlobalQuitWorksInsidePalette(t *testing.T) {
 	}
 	if _, ok := command().(tea.QuitMsg); !ok {
 		t.Fatal("ctrl+c did not issue quit")
+	}
+}
+
+func TestBeginnerHelpExplainsPrimaryWorkflow(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 100, 30
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyF1})
+	current = updated.(model)
+	rendered := current.View()
+	for _, expected := range []string{"Getting started", "Ctrl+W", "Ctrl+S", "Ctrl+G", "Ctrl+D", "Ctrl+Y"} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("help is missing %q: %q", expected, rendered)
+		}
+	}
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if updated.(model).modal != "" {
+		t.Fatal("escape did not close help")
 	}
 }
