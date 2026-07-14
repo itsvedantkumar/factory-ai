@@ -50,6 +50,7 @@ usage() {
     '  queue                      Show queue state' \
     '  logs                       Show recent service logs' \
     '  report                     Show the latest operator report' \
+    '  agent diff OBJECTIVE TASK  Show one agent worktree patch' \
     '  pause                      Stop dispatching new work' \
     '  resume                     Resume work dispatch' \
     '  shutdown                   Disable the complete runtime safely' \
@@ -193,6 +194,13 @@ case "$command" in
     ;;
   approval)
     SERVICE_BUS_NAMESPACE="$NAMESPACE" CONTROL_QUEUE=control-events exec node "$FACTORY_ROOT/src/approval-cli.js" "$@"
+    ;;
+  agent)
+    [[ ${1:-} == diff && ${2:-} =~ ^[A-Za-z0-9_-]{1,64}$ && ${3:-} =~ ^[A-Za-z0-9_-]{1,64}$ && ( -z ${4:-} || ${4:-} == --json ) ]] || { printf 'Usage: factory agent diff OBJECTIVE_ID TASK_ID [--json]\n' >&2; exit 2; }
+    published=$(remote "sudo -u factory node /opt/agent-factory/app/src/run-with-env.js /etc/agent-factory.env node /opt/agent-factory/app/src/agent-diff-publish.js '${2}' '${3}'")
+    metadata=$(printf '%s' "$published" | node -e 'let value="";process.stdin.on("data",chunk=>value+=chunk).on("end",()=>{const matches=value.match(/\{"blob":"agent-diffs\/[a-f0-9-]{36}\.bin"[^}]+\}/g);if(!matches)process.exit(1);const item=JSON.parse(matches.at(-1));process.stdout.write([item.blob,item.key,item.iv,item.tag].join("\t"))})') || { printf 'Agent diff publication returned invalid metadata.\n' >&2; exit 1; }
+    IFS=$'\t' read -r blob key iv tag <<<"$metadata"
+    FACTORY_STORAGE_ACCOUNT="$STORAGE" exec node "$FACTORY_ROOT/src/agent-diff-download.js" "$STORAGE" "$blob" "$key" "$iv" "$tag" "${4:-}"
     ;;
   acp)
     request=${1:?ACP request JSON file required}

@@ -4,6 +4,18 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-07-14
+
+### Added
+
+- Added `Ctrl+D` agent code inspection in the TUI for live staged, unstaged, untracked, or latest-checkpoint patches; `Ctrl+A` returns to activity.
+- Added `factory agent diff OBJECTIVE_ID TASK_ID` for bounded operator-side patch inspection.
+
+### Security
+
+- Diff generation runs inside a networkless, read-only, capability-dropped, resource-limited container without Factory credentials.
+- Agent patches exclude credential file classes, redact common secret formats and terminal controls, use monotonic request IDs, and cross Azure only as one-time AES-GCM encrypted private blobs.
+
 ## [2.3.3] - 2026-07-14
 
 ### Added

@@ -221,6 +221,30 @@ func TestSessionStreamShowsSelectedAgentTimelineChronologically(t *testing.T) {
 	}
 }
 
+func TestSelectedAgentCanSwitchBetweenActivityAndCodeDiff(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "app", Repository: "acme/app"}}
+	current.selectedWorkspace = "app"
+	current.selectedObjectiveID = "objective"
+	current.selectedAgentID = "builder"
+	current.dashboard.Objectives = []objective{{ID: "objective", Objective: "Ship", Repository: "acme/app", Tasks: []task{{ID: "builder", Role: "builder", Title: "Build", State: "running"}}}}
+	updated, command := current.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	current = updated.(model)
+	if command == nil || current.agentView != "diff" || !current.agentPatchLoading {
+		t.Fatal("ctrl+d did not start agent diff retrieval")
+	}
+	updated, _ = current.Update(agentDiffMsg{objectiveID: "objective", taskID: "builder", requestID: current.agentDiffRequest, patch: "diff --git a/app.go b/app.go\n+code", source: "working-tree", status: "M app.go"})
+	current = updated.(model)
+	if rendered := current.sessionStream(); !strings.Contains(rendered, "CODE DIFF") || !strings.Contains(rendered, "+code") {
+		t.Fatalf("agent diff is not visible: %q", rendered)
+	}
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	current = updated.(model)
+	if current.agentView != "activity" {
+		t.Fatal("ctrl+a did not restore activity view")
+	}
+}
+
 func TestOpenCodeStylePickersWorkWhenSidebarsAreHidden(t *testing.T) {
 	current := newModel(nil, "Factory AI", "Test")
 	current.width, current.height = 80, 24

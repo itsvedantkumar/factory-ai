@@ -100,7 +100,7 @@ factory ui
 | `factory secret set NAME` | Store a credential in global Key Vault |
 | `factory github connect ORG` | Connect GitHub Enterprise credentials |
 
-Inside `factory ui`, the main pane is an OpenCode-style objective stream and the right sidebar is the selected objective's sub-agent roster. Click an agent to inspect its retained lifecycle, model, tool, retry, phase, timestamp, and error events. Use `Ctrl+W` for workspaces, where `+ Add workspace...` or `a` starts an import; `Ctrl+S` selects objectives, `Ctrl+G` selects agents, `Ctrl+K` opens commands, and `PgUp/PgDn` scrolls the stream. Contextual autocomplete remains available with Tab or Enter.
+Inside `factory ui`, the main pane is an OpenCode-style objective stream and the right sidebar is the selected objective's sub-agent roster. Click an agent to inspect its retained lifecycle, model, tool, retry, phase, timestamp, and error events. Press `Ctrl+D` to inspect that agent's live or checkpointed code patch and `Ctrl+A` to return to activity. Use `Ctrl+W` for workspaces, where `+ Add workspace...` or `a` starts an import; `Ctrl+S` selects objectives, `Ctrl+G` selects agents, `Ctrl+K` opens commands, and `PgUp/PgDn` scrolls the stream.
 
 Two-way workspace sync is explicit and non-destructive. Enabling it installs a per-user launchd or systemd timer that runs every minute. Clean default branches fast-forward from GitHub or push ordinary local commits without force. Dirty worktrees, detached heads, changed origins, non-default branches, divergence, conflicts, and rejected pushes are marked blocked for manual resolution; Factory never resets or overwrites them.
 

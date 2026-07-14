@@ -134,6 +134,15 @@ type commandResultMsg struct {
 	command, output string
 	err             error
 }
+type agentDiffMsg struct {
+	objectiveID string
+	taskID      string
+	patch       string
+	status      string
+	source      string
+	err         error
+	requestID   int
+}
 
 type model struct {
 	client              *azblob.Client
@@ -168,6 +177,13 @@ type model struct {
 	modalIndex          int
 	modalSelectedID     string
 	followTail          bool
+	agentView           string
+	agentPatch          string
+	agentPatchStatus    string
+	agentPatchSource    string
+	agentPatchKey       string
+	agentPatchLoading   bool
+	agentDiffRequest    int
 }
 
 type agentRecord struct {
@@ -229,6 +245,7 @@ var commandCompletions = []completion{
 	{value: "secret delete ", description: "Delete a secret"},
 	{value: "approval approve ", description: "Approve a policy checkpoint"},
 	{value: "approval deny ", description: "Deny a policy checkpoint"},
+	{value: "agent diff ", description: "Show an agent worktree patch"},
 	{value: "github status", description: "Show GitHub connection"},
 	{value: "github connect ", description: "Connect a GitHub organization"},
 	{value: "telegram status", description: "Show Telegram integration"},
@@ -341,7 +358,7 @@ func validateFactoryCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("enter a factory command")
 	}
-	allowed := map[string]bool{"setup": true, "configure": true, "models": true, "acp": true, "extension": true, "github": true, "telegram": true, "workspace": true, "submit": true, "issue": true, "init": true, "secret": true, "dashboard": true, "status": true, "queue": true, "report": true, "logs": true, "doctor": true, "pause": true, "resume": true, "shutdown": true, "start": true, "update": true, "approval": true, "help": true, "--help": true, "-h": true}
+	allowed := map[string]bool{"setup": true, "configure": true, "models": true, "acp": true, "extension": true, "github": true, "telegram": true, "workspace": true, "submit": true, "issue": true, "init": true, "secret": true, "agent": true, "dashboard": true, "status": true, "queue": true, "report": true, "logs": true, "doctor": true, "pause": true, "resume": true, "shutdown": true, "start": true, "update": true, "approval": true, "help": true, "--help": true, "-h": true}
 	if args[0] == "ui" {
 		return fmt.Errorf("the UI command cannot be launched inside itself")
 	}
@@ -363,6 +380,30 @@ func executeFactoryCommand(args []string) tea.Cmd {
 		command := "factory " + strings.Join(args, " ")
 		output, err := exec.Command("factory", args...).CombinedOutput()
 		return commandResultMsg{command: command, output: string(output), err: err}
+	}
+}
+
+func fetchAgentDiffCmd(objectiveID, taskID string, requestID int) tea.Cmd {
+	return func() tea.Msg {
+		output, err := exec.Command("factory", "agent", "diff", objectiveID, taskID, "--json").CombinedOutput()
+		value := clean(string(output))
+		start := strings.Index(value, `{"objectiveId"`)
+		end := strings.LastIndex(value, "}")
+		if err == nil && (start < 0 || end < start) {
+			err = fmt.Errorf("agent diff returned invalid output")
+		}
+		var result struct {
+			Patch  string `json:"patch"`
+			Status string `json:"status"`
+			Source string `json:"source"`
+		}
+		if err == nil {
+			err = json.Unmarshal([]byte(value[start:end+1]), &result)
+		}
+		if err != nil {
+			return agentDiffMsg{objectiveID: objectiveID, taskID: taskID, requestID: requestID, err: fmt.Errorf("%s: %w", trim(value, 500), err)}
+		}
+		return agentDiffMsg{objectiveID: objectiveID, taskID: taskID, requestID: requestID, patch: result.Patch, status: result.Status, source: result.Source}
 	}
 }
 
@@ -590,6 +631,11 @@ func (m *model) openModal(kind string) {
 	m.editor.Blur()
 }
 
+func (m *model) resetAgentView() {
+	m.agentView = "activity"
+	m.agentPatchLoading = false
+}
+
 func (m *model) reconcileModal() {
 	if m.modal == "" {
 		return
@@ -637,11 +683,13 @@ func (m *model) chooseModalItem() tea.Cmd {
 	case "objectives":
 		m.selectedObjectiveID = item.id
 		m.selectedAgentID = ""
+		m.resetAgentView()
 		m.ensureSelection()
 		m.syncViewport()
 		m.content.GotoBottom()
 	case "agents":
 		m.selectedAgentID = item.id
+		m.resetAgentView()
 		m.ensureSelection()
 		m.syncViewport()
 		m.content.GotoBottom()
@@ -659,6 +707,7 @@ func (m *model) selectWorkspace(index int) {
 	m.selectedAgent = 0
 	m.selectedObjectiveID = ""
 	m.selectedAgentID = ""
+	m.resetAgentView()
 	m.ensureSelection()
 	m.scroll = 0
 	m.syncViewport()
@@ -728,6 +777,7 @@ func (m *model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		if index >= 0 && index < len(records) {
 			m.selectedAgent = index
 			m.selectedAgentID = records[index].task.ID
+			m.resetAgentView()
 			m.agentFocus = true
 			m.workspaceFocus = false
 			m.editor.Blur()
@@ -877,6 +927,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedAgent > 0 {
 					m.selectedAgent--
 					m.selectedAgentID = m.agentRecords()[m.selectedAgent].task.ID
+					m.resetAgentView()
 					m.syncViewport()
 					m.content.GotoBottom()
 				}
@@ -884,6 +935,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				if m.selectedAgent < len(m.agentRecords())-1 {
 					m.selectedAgent++
 					m.selectedAgentID = m.agentRecords()[m.selectedAgent].task.ID
+					m.resetAgentView()
 					m.syncViewport()
 					m.content.GotoBottom()
 				}
@@ -924,6 +976,21 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "ctrl+g":
 			m.openModal("agents")
+			return m, nil
+		case "ctrl+d":
+			objective := m.selectedObjective()
+			if objective == nil || m.selectedAgentID == "" {
+				return m, nil
+			}
+			m.agentView = "diff"
+			m.agentDiffRequest++
+			m.agentPatchLoading = true
+			m.syncViewport()
+			return m, fetchAgentDiffCmd(objective.ID, m.selectedAgentID, m.agentDiffRequest)
+		case "ctrl+a":
+			m.agentView = "activity"
+			m.syncViewport()
+			m.content.GotoBottom()
 			return m, nil
 		case "tab":
 			if m.acceptCompletion() {
@@ -1079,6 +1146,25 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		m.content.GotoBottom()
 		return m, fetchCmd(m.client)
+	case agentDiffMsg:
+		objective := m.selectedObjective()
+		if objective == nil || msg.objectiveID != objective.ID || msg.taskID != m.selectedAgentID || msg.requestID != m.agentDiffRequest {
+			return m, nil
+		}
+		m.agentPatchLoading = false
+		m.agentView = "diff"
+		m.agentPatchKey = msg.objectiveID + ":" + msg.taskID
+		if msg.err != nil {
+			m.agentPatch = msg.err.Error()
+			m.agentPatchStatus = "unavailable"
+			m.agentPatchSource = "error"
+		} else {
+			m.agentPatch = msg.patch
+			m.agentPatchStatus = msg.status
+			m.agentPatchSource = msg.source
+		}
+		m.syncViewport()
+		m.content.GotoTop()
 	case tickMsg:
 		if !m.loading {
 			m.loading = true
@@ -1208,6 +1294,19 @@ func (m model) sessionStream() string {
 		return value.String()
 	}
 	fmt.Fprintf(&value, "\n%s\n%s · %s · %s\n\n", lipgloss.NewStyle().Foreground(accent).Bold(true).Render(clean(agent.Title)), clean(agent.Role), clean(agent.Model), badge(agent.State))
+	if m.agentView == "diff" {
+		key := selected.ID + ":" + agent.ID
+		value.WriteString(lipgloss.NewStyle().Foreground(blue).Bold(true).Render("CODE DIFF") + "\n")
+		if m.agentPatchLoading {
+			value.WriteString("Loading isolated worktree patch...\n")
+		} else if m.agentPatchKey != key {
+			value.WriteString("Press d to load this agent's patch.\n")
+		} else {
+			fmt.Fprintf(&value, "%s\n", lipgloss.NewStyle().Foreground(muted).Render(clean(m.agentPatchSource+" · "+m.agentPatchStatus)))
+			value.WriteString(clean(m.agentPatch) + "\n")
+		}
+		return value.String()
+	}
 	events := append([]activity(nil), agent.Events...)
 	if len(events) == 0 && agent.Activity != nil {
 		events = append(events, *agent.Activity)
@@ -1564,7 +1663,7 @@ func (m model) View() string {
 		BorderForeground(accent).
 		Padding(0, 1).
 		Render(strings.Join(editorRows, "\n"))
-	status := "ctrl+k commands  ctrl+w workspace  ctrl+s objective  ctrl+g agent  pgup/pgdn stream"
+	status := "ctrl+k commands  ctrl+w workspace  ctrl+s objective  ctrl+g agent  ctrl+d code  ctrl+a activity"
 	if m.loading {
 		status = "Refreshing Factory state...  " + status
 	}
