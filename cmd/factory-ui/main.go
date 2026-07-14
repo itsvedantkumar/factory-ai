@@ -206,6 +206,8 @@ type pickerItem struct {
 	description string
 }
 
+const addWorkspaceID = "__add_workspace__"
+
 var commandCompletions = []completion{
 	{value: "help", description: "Show the command reference"},
 	{value: "setup", description: "Deploy or repair Factory AI"},
@@ -535,6 +537,7 @@ func (m model) modalItems() []pickerItem {
 	items := []pickerItem{}
 	switch m.modal {
 	case "workspaces":
+		items = append(items, pickerItem{id: addWorkspaceID, title: "+ Add workspace...", description: "Import a local path or OWNER/REPO"})
 		for _, workspace := range m.workspaces {
 			sync := "sync off"
 			if workspace.Sync.Enabled {
@@ -617,6 +620,14 @@ func (m *model) chooseModalItem() tea.Cmd {
 	item := items[m.modalIndex]
 	switch m.modal {
 	case "workspaces":
+		if item.id == addWorkspaceID {
+			m.modal = ""
+			m.modalSelectedID = ""
+			m.setEditorValue("workspace import ")
+			m.resize()
+			m.syncViewport()
+			return m.editor.Focus()
+		}
 		for index := range m.workspaces {
 			if m.workspaces[index].Name == item.id {
 				m.selectWorkspace(index)
@@ -811,6 +822,12 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			case "esc":
 				m.modal = ""
 				return m, m.editor.Focus()
+			case "a":
+				if m.modal == "workspaces" {
+					m.modalIndex = 0
+					m.modalSelectedID = addWorkspaceID
+					return m, m.chooseModalItem()
+				}
 			case "up", "k":
 				if m.modalIndex > 0 {
 					m.modalIndex--

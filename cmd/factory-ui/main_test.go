@@ -240,6 +240,34 @@ func TestOpenCodeStylePickersWorkWhenSidebarsAreHidden(t *testing.T) {
 	}
 }
 
+func TestWorkspacePickerCanStartWorkspaceImport(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 80, 24
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	current = updated.(model)
+	if rendered := current.View(); !strings.Contains(rendered, "Add workspace") {
+		t.Fatalf("workspace picker has no add action: %q", rendered)
+	}
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if current.modal != "" || current.editor.Value() != "workspace import " || !current.editor.Focused() {
+		t.Fatalf("add workspace did not focus import editor: modal=%q value=%q", current.modal, current.editor.Value())
+	}
+}
+
+func TestWorkspacePickerAddShortcutWorksWithExistingWorkspaces(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.workspaces = []workspace{{Name: "alpha"}, {Name: "beta"}}
+	current.selectedWorkspace = "alpha"
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	current = updated.(model)
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	current = updated.(model)
+	if current.editor.Value() != "workspace import " || current.modal != "" {
+		t.Fatalf("workspace add shortcut failed: %q", current.editor.Value())
+	}
+}
+
 func TestOpenPickerSelectionSurvivesSnapshotReordering(t *testing.T) {
 	current := newModel(nil, "Factory AI", "Test")
 	current.width, current.height = 80, 24

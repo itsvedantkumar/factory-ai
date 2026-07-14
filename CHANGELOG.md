@@ -4,6 +4,12 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.3.3] - 2026-07-14
+
+### Added
+
+- Added a visible `+ Add workspace...` action and `a` shortcut to the `Ctrl+W` workspace picker, including its empty state.
+
 ## [2.3.2] - 2026-07-14
 
 ### Fixed
