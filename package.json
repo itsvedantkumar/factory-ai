@@ -1,6 +1,6 @@
 {
   "name": "factory-ai",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Deploy a private autonomous coding-agent factory on Azure: isolated builders, testers, security reviewers, durable orchestration, multi-model routing, memory, cost controls, and gated GitHub pull requests.",
   "private": false,
   "license": "MIT",

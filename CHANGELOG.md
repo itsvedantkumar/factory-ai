@@ -4,6 +4,14 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-07-14
+
+### Security
+
+- Moved agent Git and untracked-file inspection fully into a networkless read-only container with no Factory environment and transient Docker-group access.
+- Encrypted every diff with a random one-time AES-GCM key before private Blob transport; retained Blob versions contain ciphertext only.
+- Added strict metadata validation, resource limits, stale-request rejection, and safe untracked-file handling.
+
 ## [2.4.0] - 2026-07-14
 
 ### Added
