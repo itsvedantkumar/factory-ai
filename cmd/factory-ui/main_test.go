@@ -168,6 +168,30 @@ func TestSlashAgentAndDiffCommandsNavigateWithoutSidebar(t *testing.T) {
 	}
 }
 
+func TestObjectivePickerAndSlashCommandsCanCreateObjectives(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.width, current.height = 80, 24
+	current.workspaces = []workspace{{Name: "app", Repository: "acme/app"}}
+	current.selectedWorkspace = "app"
+	current.editor.SetValue("/objective")
+	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if rendered := current.View(); !strings.Contains(rendered, "New objective") {
+		t.Fatalf("objective picker has no create action: %q", rendered)
+	}
+	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if current.editor.Value() != "submit app " || current.modal != "" {
+		t.Fatalf("new objective action did not prepare submission: %q", current.editor.Value())
+	}
+	current.editor.SetValue("/new Fix the navigation")
+	updated, command := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	current = updated.(model)
+	if command == nil || current.editor.Value() != "" {
+		t.Fatal("/new did not submit the objective")
+	}
+}
+
 func TestPartialSlashCommandsAutocompleteAndPaletteReturnsFocus(t *testing.T) {
 	current := newModel(nil, "Factory AI", "Test")
 	current.editor.SetValue("/w")

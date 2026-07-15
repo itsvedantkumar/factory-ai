@@ -84,7 +84,7 @@ export class ContainerAgentRunner {
     let writes = Promise.resolve();
     const record = (event) => {
       if (!this.activityStore) return;
-      writes = writes.then(() => this.activityStore.append(packet.objective.id, taskId, event)).catch(() => {});
+      writes = writes.then(() => this.activityStore.append(packet.objective.id, taskId, event));
     };
     let stderrBuffer = "";
     const consumeEvents = (chunk) => {

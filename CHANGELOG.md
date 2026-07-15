@@ -4,6 +4,13 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.7.1] - 2026-07-15
+
+### Fixed
+
+- Made provider-usage event persistence fail closed so disk/activity failures cannot silently undercount billed requests.
+- Added regression coverage for creating objectives directly from `/objective` and `/new`.
+
 ## [2.7.0] - 2026-07-15
 
 ### Added
