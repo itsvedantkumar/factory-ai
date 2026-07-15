@@ -4,6 +4,14 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-07-15
+
+### Added
+
+- Added the strict privacy-safe `factory.usage.v1` ledger for provider-reported completed-task token usage.
+- Added `factory usage sync`, `factory usage report [--json]`, and `factory usage export` with the local ledger at `~/.local/share/factory-ai/usage/usage.jsonl`.
+- Added automatic local usage synchronization during TUI refreshes so usage dashboards can identify Factory AI as its own source.
+
 ## [2.6.1] - 2026-07-15
 
 ### Fixed

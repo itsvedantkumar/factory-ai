@@ -75,6 +75,7 @@ export class AzureAgentRunner {
   harness(task, directory, additionalTools = {}) {
     const role = task.role;
     const route = modelForTask(task, this.environment);
+    const onEvent = (event) => this.eventSink({ ...event, modelRoute: route });
     const workspaceTools = createWorkspaceTools(directory, { mutable: ["builder", "debugger"].includes(role), allowTests: role === "tester" });
     const tools = { ...workspaceTools, ...additionalTools };
     const budget = budgetFor(task);
@@ -94,10 +95,10 @@ export class AzureAgentRunner {
         tools,
         ...budget,
         ...contextBudget,
-        onEvent: this.eventSink,
+        onEvent,
       });
     }
-    return this.createHarness({ ...endpointForRoute(route, role, this.environment), tools, timeoutMs: this.config.timeoutMs, ...budget, ...contextBudget, onEvent: this.eventSink });
+    return this.createHarness({ ...endpointForRoute(route, role, this.environment), tools, timeoutMs: this.config.timeoutMs, ...budget, ...contextBudget, onEvent });
   }
 
   async invoke({ objective, task, directory, prompt }) {

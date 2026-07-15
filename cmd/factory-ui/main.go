@@ -238,6 +238,7 @@ type pickerItem struct {
 }
 
 const addWorkspaceID = "__add_workspace__"
+const newObjectiveID = "__new_objective__"
 
 var commandCompletions = []completion{
 	{value: "/help", description: "Show the beginner command guide"},
@@ -564,7 +565,7 @@ func fetchCmd(client *azblob.Client, requestID int) tea.Cmd {
 		var syncScheduler schedulerStatus
 		workspaceErr := ""
 		var group sync.WaitGroup
-		group.Add(4)
+		group.Add(5)
 		go func() {
 			defer group.Done()
 			data, err := download(client, "dashboard.json")
@@ -572,6 +573,12 @@ func fetchCmd(client *azblob.Client, requestID int) tea.Cmd {
 				err = json.Unmarshal(data, &board)
 			}
 			dashboardErr = err
+		}()
+		go func() {
+			defer group.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			_ = exec.CommandContext(ctx, "factory", "usage", "sync").Run()
 		}()
 		go func() { defer group.Done(); logData, _ = download(client, "logs.txt") }()
 		go func() {
@@ -712,6 +719,7 @@ func (m model) modalItems() []pickerItem {
 			items = append(items, pickerItem{id: workspace.Name, title: workspace.Name, description: workspace.Repository + " · " + sync})
 		}
 	case "objectives":
+		items = append(items, pickerItem{id: newObjectiveID, title: "+ New objective...", description: "Describe work for the selected workspace"})
 		objectives := m.visibleObjectives()
 		for index := len(objectives) - 1; index >= 0; index-- {
 			items = append(items, pickerItem{id: objectives[index].ID, title: objectives[index].Objective, description: objectives[index].Status + " · " + objectives[index].ID})
@@ -806,6 +814,13 @@ func (m *model) chooseModalItem() tea.Cmd {
 			}
 		}
 	case "objectives":
+		if item.id == newObjectiveID {
+			m.modal = ""
+			m.modalSelectedID = ""
+			m.setEditorValue("submit {workspace} ")
+			m.resize()
+			return m.editor.Focus()
+		}
 		m.selectedObjectiveID = item.id
 		m.selectedAgentID = ""
 		m.resetAgentView()
@@ -1018,6 +1033,20 @@ func (m *model) runSlashCommand(line string) (bool, tea.Cmd) {
 			m.openModal("objectives")
 			return true, nil
 		}
+		if args[1] == "add" || args[1] == "new" {
+			selected := m.selected()
+			if selected == nil {
+				m.notice = "Choose a workspace with /workspace first"
+				return true, nil
+			}
+			if len(args) == 2 {
+				m.setEditorValue("submit {workspace} ")
+				return true, nil
+			}
+			finish()
+			m.loading = true
+			return true, executeFactoryCommand(append([]string{"submit", selected.Name}, args[2:]...))
+		}
 		for _, item := range m.visibleObjectives() {
 			if strings.EqualFold(item.ID, args[1]) {
 				finish()
@@ -1050,6 +1079,19 @@ func (m *model) runSlashCommand(line string) (bool, tea.Cmd) {
 		}
 		m.notice = "Unknown agent. Type /agent to choose"
 		return true, nil
+	case "new":
+		selected := m.selected()
+		if selected == nil {
+			m.notice = "Choose a workspace with /workspace first"
+			return true, nil
+		}
+		if len(args) == 1 {
+			m.setEditorValue("submit {workspace} ")
+			return true, nil
+		}
+		finish()
+		m.loading = true
+		return true, executeFactoryCommand(append([]string{"submit", selected.Name}, args[1:]...))
 	case "diff", "code":
 		objective := m.selectedObjective()
 		if objective == nil || m.selectedAgentID == "" {

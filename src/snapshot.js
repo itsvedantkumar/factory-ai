@@ -7,6 +7,8 @@ import { DefaultAzureCredential } from "@azure/identity";
 import { SecretClient } from "@azure/keyvault-secrets";
 import { run } from "./process.js";
 import { safeOperatorLogs } from "./operator-logs.js";
+import { syncUsageStore } from "./usage-store.js";
+import { createHash } from "node:crypto";
 
 process.title = "factory-ai-snapshot";
 const config = loadConfig();
@@ -16,6 +18,12 @@ const queue = await loadQueueMetrics(config);
 let cost = null;
 try { cost = await loadAzureCost(config); } catch (error) { loaded.warnings.push(`Cost unavailable: ${error.message}`); }
 const dashboard = aggregateDashboard({ ...loaded, queue, cost, runtime: { status: "running" } });
+try {
+  const factoryId = `factory-${createHash("sha256").update(config.storageAccount).digest("hex").slice(0, 16)}`;
+  const usageRecords = await syncUsageStore(root, factoryId, loaded.states);
+  await uploadOperatorBlob(config, "usage/v1/usage.jsonl", usageRecords.map((record) => JSON.stringify(record)).join("\n") + (usageRecords.length ? "\n" : ""), "application/x-ndjson; charset=utf-8");
+  dashboard.usageRecords = usageRecords.length;
+} catch (error) { dashboard.warnings.push(`Usage ledger unavailable: ${error.message}`); }
 try {
   const secrets = [];
   const client = new SecretClient(config.keyVaultUrl, new DefaultAzureCredential());

@@ -19,7 +19,7 @@ let currentPhase = "starting";
 const telemetry = createTelemetry({ exporter: async (record) => process.stderr.write(`@factory-event ${JSON.stringify({ type: "telemetry.recorded", telemetry: record, occurredAt: record.timestamp })}\n`) });
 const eventSink = (event) => {
   if (event.type !== "agent.heartbeat") currentPhase = event.tool ? `${event.type}:${event.tool}` : event.type;
-  process.stderr.write(`@factory-event ${JSON.stringify({ ...event, phase: currentPhase, occurredAt: new Date().toISOString() })}\n`);
+  process.stderr.write(`@factory-event ${JSON.stringify({ ...event, role: packet.task?.role ?? packet.mode, phase: currentPhase, occurredAt: new Date().toISOString() })}\n`);
   const kind = event.type?.startsWith("model.") ? "model" : event.type?.startsWith("tool.") ? "tool" : null;
   if (kind) void telemetry.emitEvent(kind, { objectiveId: packet.objective.id, taskId: packet.task?.id ?? "planner0", role: packet.task?.role ?? packet.mode }, { statusClass: event.type.endsWith("failed") ? "error" : event.type.endsWith("retry") ? "retry" : "ok", attempt: event.attempt ?? event.step ?? 0, inputTokens: event.usage?.input_tokens ?? event.usage?.inputTokens, outputTokens: event.usage?.output_tokens ?? event.usage?.outputTokens });
 };

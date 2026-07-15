@@ -65,10 +65,10 @@ export class ControlPlane {
 
   async acceptTaskResult(value) {
     const result = parseResultMessage(value);
-    await this.store.update(result.objectiveId, (state) => TERMINAL_OBJECTIVE_STATES.has(state.status) ? state : ({
-      ...state,
-      results: { ...state.results, [result.taskId]: { ...result, completedAt: new Date().toISOString() } },
-    }));
+    await this.store.update(result.objectiveId, (state) => {
+      if (TERMINAL_OBJECTIVE_STATES.has(state.status) || (state.results[result.taskId]?.status === "succeeded" && state.results[result.taskId]?.commit === result.commit)) return state;
+      return { ...state, results: { ...state.results, [result.taskId]: { ...result, completedAt: new Date().toISOString() } } };
+    });
     await this.dispatch(result.objectiveId);
   }
 

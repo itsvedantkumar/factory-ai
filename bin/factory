@@ -50,6 +50,9 @@ usage() {
     '  queue                      Show queue state' \
     '  logs                       Show recent service logs' \
     '  report                     Show the latest operator report' \
+    '  usage report               Show local Factory AI token usage' \
+    '  usage sync                 Synchronize the VM usage ledger' \
+    '  usage export               Export factory.usage.v1 JSONL' \
     '  agent diff OBJECTIVE TASK  Show one agent worktree patch' \
     '  pause                      Stop dispatching new work' \
     '  resume                     Resume work dispatch' \
@@ -580,6 +583,9 @@ case "$command" in
     ;;
   report)
     remote 'node -e '\''const fs=require("fs"),p="/opt/agent-factory/state/reports";const f=fs.readdirSync(p).filter(x=>x.endsWith(".md")).sort().at(-1);process.stdout.write(fs.readFileSync(`${p}/${f}`,"utf8"))'\'''
+    ;;
+  usage)
+    FACTORY_STORAGE_ACCOUNT="$STORAGE" exec node "$FACTORY_ROOT/src/usage-cli.js" "$@"
     ;;
   logs)
     remote 'journalctl -u agent-factory-control -u agent-factory-worker -u agent-factory-release --since "1 hour ago" --no-pager -n 250'

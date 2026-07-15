@@ -95,6 +95,9 @@ factory ui
 | `factory queue` | Queue and dead-letter depth |
 | `factory logs` | Consolidated service logs |
 | `factory report` | Latest hourly executive report |
+| `factory usage sync` | Synchronize provider-reported Factory AI usage to the local ledger |
+| `factory usage report --json` | Report local usage grouped by model for dashboards and adapters |
+| `factory usage export` | Export strict `factory.usage.v1` JSONL |
 | `factory pause` / `resume` | Pause or resume execution safely |
 | `factory shutdown` / `start` | Disable or re-enable the complete runtime; Azure resources remain allocated |
 | `factory secret set NAME` | Store a credential in global Key Vault |
