@@ -4,6 +4,18 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.7.3] - 2026-07-15
+
+### Added
+
+- Added native local TUI session and command logs at `~/.local/share/factory-ai/logs/YYYY-MM-DD.jsonl`, explicitly attributed with `client: "Factory AI"`, `source: "factory-ai"`, and `service: "factory-ui"`.
+- Added pinned pnpm and Yarn clients plus Python, make, g++, and pkg-config to worker sandboxes for monorepos and native Node dependencies.
+- Allowed builders and debuggers to run repository-local pnpm/Yarn workflows while preserving read-only tester restrictions.
+
+### Privacy
+
+- Local logs record only safe event names and top-level command names; they never record prompts, command arguments, responses, source code, or secrets.
+
 ## [2.7.2] - 2026-07-15
 
 ### Fixed

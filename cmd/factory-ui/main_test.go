@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +18,57 @@ func TestCleanRemovesTerminalControlSequences(t *testing.T) {
 	value := clean("safe\x1b]52;c;clipboard\x07\x1b[31mred\x1b[0m\x00")
 	if value != "safered" || strings.ContainsRune(value, '\x1b') {
 		t.Fatalf("unexpected sanitized value %q", value)
+	}
+}
+
+func TestLocalSessionLogsIdentifyFactoryAIWithoutContent(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("FACTORY_LOCAL_LOG_DIR", directory)
+	if err := appendLocalEvent("session.started", map[string]string{"command": "ui"}); err != nil {
+		t.Fatal(err)
+	}
+	files, err := filepath.Glob(filepath.Join(directory, "*.jsonl"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("local log missing: %v %#v", err, files)
+	}
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["client"] != "Factory AI" || record["source"] != "factory-ai" || record["service"] != "factory-ui" || record["event"] != "session.started" {
+		t.Fatalf("unexpected local attribution: %#v", record)
+	}
+	for _, forbidden := range []string{"prompt", "response", "sourceCode", "arguments"} {
+		if _, exists := record[forbidden]; exists {
+			t.Fatalf("local log contains %s", forbidden)
+		}
+	}
+}
+
+func TestLocalCommandNamesAreAllowlisted(t *testing.T) {
+	if safeLocalCommand("workspace") != "workspace" {
+		t.Fatal("known command was hidden")
+	}
+	if safeLocalCommand("token-value") != "unknown" {
+		t.Fatal("unknown input could leak into local logs")
+	}
+}
+
+func TestUnknownSlashCommandIsNotPersisted(t *testing.T) {
+	directory := t.TempDir()
+	t.Setenv("FACTORY_LOCAL_LOG_DIR", directory)
+	current := model{}
+	handled, _ := current.runSlashCommand("/token-value secret")
+	if !handled {
+		t.Fatal("unknown slash command was not handled")
+	}
+	files, err := filepath.Glob(filepath.Join(directory, "*.jsonl"))
+	if err != nil || len(files) != 0 {
+		t.Fatalf("unknown slash input reached local log: %v %#v", err, files)
 	}
 }
 

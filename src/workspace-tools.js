@@ -3,8 +3,9 @@ import { realpathSync } from "node:fs";
 import path from "node:path";
 import { run } from "./process.js";
 
-const ALLOWED_COMMANDS = new Set(["git", "ls", "node", "npm", "npx", "pwd", "rg"]);
+const ALLOWED_COMMANDS = new Set(["git", "ls", "node", "npm", "npx", "pnpm", "pwd", "rg", "yarn"]);
 const DENIED_GIT_OPERATIONS = new Set(["credential", "push", "remote"]);
+const DENIED_PACKAGE_OPERATIONS = new Set(["access", "adduser", "config", "create", "deprecate", "dist-tag", "dlx", "exec", "global", "hook", "init", "login", "logout", "org", "owner", "profile", "publish", "star", "stars", "team", "token", "unpublish", "whoami"]);
 const READ_ONLY_GIT_OPERATIONS = new Set(["diff", "grep", "log", "ls-files", "rev-parse", "show", "status"]);
 
 function lexicalPath(root, requested) {
@@ -118,11 +119,12 @@ export function createWorkspaceTools(rootInput, { execute = run, mutable = true,
       },
       execute: async ({ command, args }) => {
         if (!ALLOWED_COMMANDS.has(command)) throw new Error(`Command not allowed: ${command}`);
-        const testCommand = allowTests && ((command === "npm" && ["test", "run"].includes(args[0])) || (command === "node" && args[0] === "--test") || (command === "npx" && args[0] === "--no-install"));
+        const testCommand = allowTests && ((["npm", "pnpm", "yarn"].includes(command) && ["test", "run"].includes(args[0])) || (command === "node" && args[0] === "--test") || (command === "npx" && args[0] === "--no-install"));
         if (!mutable && !testCommand && !["git", "ls", "pwd", "rg"].includes(command)) throw new Error(`Command not allowed for read-only role: ${command}`);
         if (command === "git" && (args.some((item) => DENIED_GIT_OPERATIONS.has(item)) || args.some((item) => ["-c", "--config-env", "--exec-path"].includes(item)))) throw new Error("Git operation not allowed");
         if (!mutable && command === "git" && (args[0]?.startsWith("-") || !READ_ONLY_GIT_OPERATIONS.has(args[0]))) throw new Error(`Git operation not allowed for read-only role: ${args[0]}`);
         if (command === "npx" && args[0] !== "--no-install") throw new Error("npx requires --no-install");
+        if (["npm", "pnpm", "yarn"].includes(command) && (args.some((item) => DENIED_PACKAGE_OPERATIONS.has(item)) || args.some((item) => ["-g", "--global"].includes(item)))) throw new Error("Package manager operation not allowed");
         const result = await execute(command, args, {
           cwd: root,
           timeoutMs: 900_000,

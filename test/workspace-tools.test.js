@@ -28,8 +28,13 @@ test("runs allowlisted commands without inherited credentials", async () => {
   });
 
   assert.equal(await tools.run_command.execute({ command: "npm", args: ["test"] }), "ok");
+  assert.equal(await tools.run_command.execute({ command: "pnpm", args: ["install", "--frozen-lockfile"] }), "ok");
+  assert.equal(await tools.run_command.execute({ command: "yarn", args: ["install", "--frozen-lockfile"] }), "ok");
   assert.equal(calls[0].options.inheritEnv, false);
   await assert.rejects(() => tools.run_command.execute({ command: "curl", args: ["https://example.com"] }), /Command not allowed/);
+  await assert.rejects(() => tools.run_command.execute({ command: "pnpm", args: ["dlx", "tool"] }), /Package manager operation not allowed/);
+  await assert.rejects(() => tools.run_command.execute({ command: "npm", args: ["publish"] }), /Package manager operation not allowed/);
+  await assert.rejects(() => tools.run_command.execute({ command: "yarn", args: ["global", "add", "tool"] }), /Package manager operation not allowed/);
   await assert.rejects(() => tools.run_command.execute({ command: "git", args: ["push", "origin", "main"] }), /Git operation not allowed/);
   await assert.rejects(() => tools.run_command.execute({ command: "git", args: ["-c", "alias.ship=push", "ship"] }), /Git operation not allowed/);
 });
@@ -47,6 +52,9 @@ test("tester roles can run project test gates without receiving write tools", as
   const root = await mkdtemp(path.join(os.tmpdir(), "factory-tools-"));
   const tools = createWorkspaceTools(root, { mutable: false, allowTests: true, execute: async () => ({ code: 0, stdout: "passed", stderr: "" }) });
   assert.equal(await tools.run_command.execute({ command: "npm", args: ["test"] }), "passed");
+  assert.equal(await tools.run_command.execute({ command: "pnpm", args: ["run", "typecheck"] }), "passed");
+  assert.equal(await tools.run_command.execute({ command: "yarn", args: ["test"] }), "passed");
+  await assert.rejects(() => tools.run_command.execute({ command: "pnpm", args: ["install"] }), /read-only role/);
   await assert.rejects(() => tools.run_command.execute({ command: "node", args: ["-e", "write()"] }), /read-only role/);
 });
 

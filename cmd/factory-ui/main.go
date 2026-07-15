@@ -332,6 +332,58 @@ func clean(value string) string {
 	}, value)
 }
 
+func appendLocalEvent(event string, fields map[string]string) error {
+	directory := os.Getenv("FACTORY_LOCAL_LOG_DIR")
+	if directory == "" {
+		home, _ := os.UserHomeDir()
+		directory = filepath.Join(home, ".local", "share", "factory-ai", "logs")
+	}
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return err
+	}
+	record := map[string]any{
+		"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		"client":    "Factory AI",
+		"source":    "factory-ai",
+		"service":   "factory-ui",
+		"event":     trim(event, 100),
+	}
+	allowed := map[string]bool{"command": true, "workspace": true, "objectiveId": true, "taskId": true, "status": true}
+	for key, value := range fields {
+		if allowed[key] {
+			record[key] = trim(value, 128)
+		}
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		return err
+	}
+	file := filepath.Join(directory, time.Now().UTC().Format("2006-01-02")+".jsonl")
+	handle, err := os.OpenFile(file, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
+	_ = handle.Chmod(0o600)
+	_, err = handle.Write(append(data, '\n'))
+	return err
+}
+
+func safeLocalCommand(command string) string {
+	allowed := map[string]bool{
+		"acp": true, "agent": true, "approval": true, "configure": true, "dashboard": true, "doctor": true,
+		"extension": true, "github": true, "init": true, "issue": true, "logs": true,
+		"models": true, "pause": true, "queue": true, "report": true, "resume": true,
+		"secret": true, "setup": true, "shutdown": true, "start": true, "status": true,
+		"submit": true, "telegram": true, "ui": true, "update": true, "usage": true,
+		"workspace": true,
+	}
+	if allowed[command] {
+		return command
+	}
+	return "unknown"
+}
+
 func parseCommandLine(value string) ([]string, error) {
 	var args []string
 	var current strings.Builder
@@ -1000,6 +1052,10 @@ func (m *model) runSlashCommand(line string) (bool, tea.Cmd) {
 		m.notice = "Invalid slash command. Type /help"
 		return true, nil
 	}
+	known := map[string]bool{"workspace": true, "ws": true, "objective": true, "session": true, "agent": true, "new": true, "diff": true, "code": true, "activity": true, "copy": true, "help": true, "commands": true, "refresh": true, "quit": true, "exit": true}
+	if known[args[0]] {
+		_ = appendLocalEvent("command.executed", map[string]string{"command": "/" + args[0]})
+	}
 	finish := func() { m.editor.Reset(); m.historyIndex = len(m.commandHistory) }
 	switch args[0] {
 	case "workspace", "ws":
@@ -1418,6 +1474,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.content.GotoBottom()
 				return m, nil
 			}
+			_ = appendLocalEvent("command.executed", map[string]string{"command": safeLocalCommand(args[0])})
 			m.editor.Reset()
 			m.commandHistory = append(m.commandHistory, line)
 			m.historyIndex = len(m.commandHistory)
@@ -2140,8 +2197,10 @@ func main() {
 	if application.purpose == "" {
 		application.purpose = "Ship secure reviewed software continuously"
 	}
+	_ = appendLocalEvent("session.started", map[string]string{"command": "ui"})
 	if _, err := tea.NewProgram(application, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	_ = appendLocalEvent("session.ended", map[string]string{"status": "closed"})
 }

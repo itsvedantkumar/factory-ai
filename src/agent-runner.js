@@ -61,6 +61,7 @@ export class AzureAgentRunner {
     return [
       `You are a ${factoryName} isolated ${task.role} subagent. Factory purpose: ${factoryPurpose}.`,
       "Work only in the assigned repository. Never inspect credentials, push Git refs, deploy, or install global tools.",
+      "Use the repository lockfile's package manager. Install project dependencies locally with npm ci, pnpm install --frozen-lockfile, or yarn install --frozen-lockfile when required.",
       "Use tools for evidence. Make the smallest correct change and verify every completion claim.",
       'Return only JSON: {"summary":"concise outcome","checks":["command/result"],"risks":["remaining risk"],"approval":"approved|changes_requested|not_applicable"}.',
       `CEO objective: ${objective.objective}`,
