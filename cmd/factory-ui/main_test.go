@@ -58,6 +58,54 @@ func TestLocalCommandNamesAreAllowlisted(t *testing.T) {
 	}
 }
 
+func TestPlainTextIsAPromptAndFactoryCommandsRequireExplicitPrefix(t *testing.T) {
+	if inputKind("Explain this router") != "prompt" || inputKind("objective: rebuild checkout") != "prompt" {
+		t.Fatal("plain text was not treated as a prompt")
+	}
+	if inputKind("factory status") != "factory" {
+		t.Fatal("explicit Factory command was not recognized")
+	}
+	if inputKind("update dependencies") != "prompt" || inputKind("status of checkout") != "prompt" {
+		t.Fatal("bare prompt text was mistaken for an administrative command")
+	}
+	if inputKind("/run npm test") != "slash" {
+		t.Fatal("slash command was not recognized")
+	}
+}
+
+func TestWorkspaceCommandsRejectShellsAndUnsafePackageOperations(t *testing.T) {
+	if err := validateWorkspaceCommand([]string{"npm", "test"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"sh", "-c", "npm test"}, {"npm", "publish"}, {"npx", "tool"}, {"git", "reset", "--hard"}} {
+		if validateWorkspaceCommand(args) == nil {
+			t.Fatalf("unsafe workspace command accepted: %#v", args)
+		}
+	}
+}
+
+func TestDefaultPreviewCommandBindsViteOutsideContainerLoopback(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.WriteFile(filepath.Join(directory, "package.json"), []byte(`{"devDependencies":{"vite":"1.0.0"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command := defaultPreviewCommand(workspace{LocalPath: directory})
+	if strings.Join(command, " ") != "npm run dev -- --host 0.0.0.0" {
+		t.Fatalf("preview command is not externally bound: %#v", command)
+	}
+}
+
+func TestConsequentialFactoryCommandsRequireConfirmation(t *testing.T) {
+	for _, args := range [][]string{{"shutdown"}, {"update", "now"}, {"workspace", "remove", "app"}, {"secret", "delete", "token"}, {"github", "transfer", "org"}} {
+		if !requiresConfirmation(args) {
+			t.Fatalf("missing confirmation for %#v", args)
+		}
+	}
+	if requiresConfirmation([]string{"status"}) || requiresConfirmation([]string{"workspace", "list"}) {
+		t.Fatal("read-only command unexpectedly requires confirmation")
+	}
+}
+
 func TestUnknownSlashCommandIsNotPersisted(t *testing.T) {
 	directory := t.TempDir()
 	t.Setenv("FACTORY_LOCAL_LOG_DIR", directory)
@@ -99,14 +147,14 @@ func TestSynchronizedTranscriptAcceptsConcurrentStreams(t *testing.T) {
 	}
 }
 
-func TestCommandBarAcceptsTypedFactoryCommands(t *testing.T) {
+func TestPromptBarAcceptsExplicitFactoryCommands(t *testing.T) {
 	current := newModel(nil, "Factory AI", "Test")
 	var updated tea.Model
-	for _, character := range "workspace list" {
+	for _, character := range "factory workspace list" {
 		updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{character}})
 		current = updated.(model)
 	}
-	if current.editor.Value() != "workspace list" {
+	if current.editor.Value() != "factory workspace list" {
 		t.Fatalf("got %q", current.editor.Value())
 	}
 	updated, command := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -127,7 +175,7 @@ func TestCommandPalettePrefillsSelectedAction(t *testing.T) {
 	}
 	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	current = updated.(model)
-	if current.showPalette || current.editor.Value() != "submit beta " {
+	if current.showPalette || current.editor.Value() != "objective: " {
 		t.Fatalf("palette did not prefill selected action: %q", current.editor.Value())
 	}
 }
@@ -152,7 +200,7 @@ func TestEditorShowsAndAcceptsCommandCompletions(t *testing.T) {
 	current := newModel(nil, "Factory AI", "Test")
 	current.width, current.height = 100, 30
 	current.resize()
-	for _, character := range "work" {
+	for _, character := range "factory work" {
 		updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{character}})
 		current = updated.(model)
 	}
@@ -161,7 +209,7 @@ func TestEditorShowsAndAcceptsCommandCompletions(t *testing.T) {
 	}
 	updated, _ := current.Update(tea.KeyMsg{Type: tea.KeyTab})
 	current = updated.(model)
-	if current.editor.Value() != "workspace list" {
+	if current.editor.Value() != "factory workspace list" {
 		t.Fatalf("tab did not accept completion: %q", current.editor.Value())
 	}
 }
@@ -170,14 +218,14 @@ func TestEditorCompletesWorkspaceArguments(t *testing.T) {
 	current := newModel(nil, "Factory AI", "Test")
 	current.workspaces = []workspace{{Name: "alpha"}, {Name: "beta"}}
 	current.width, current.height = 100, 30
-	current.editor.SetValue("submit b")
+	current.editor.SetValue("factory submit b")
 	current.resize()
-	if rendered := current.View(); !strings.Contains(rendered, "submit beta") {
+	if rendered := current.View(); !strings.Contains(rendered, "factory submit beta") {
 		t.Fatalf("workspace completion is not visible: %q", rendered)
 	}
 	updated, command := current.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	current = updated.(model)
-	if command != nil || current.editor.Value() != "submit beta " {
+	if command != nil || current.editor.Value() != "factory submit beta " {
 		t.Fatalf("enter did not accept workspace completion: %q", current.editor.Value())
 	}
 }
@@ -234,7 +282,7 @@ func TestObjectivePickerAndSlashCommandsCanCreateObjectives(t *testing.T) {
 	}
 	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	current = updated.(model)
-	if current.editor.Value() != "submit app " || current.modal != "" {
+	if current.editor.Value() != "objective: " || current.modal != "" {
 		t.Fatalf("new objective action did not prepare submission: %q", current.editor.Value())
 	}
 	current.editor.SetValue("/new Fix the navigation")
@@ -450,7 +498,7 @@ func TestWorkspacePickerCanStartWorkspaceImport(t *testing.T) {
 	}
 	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	current = updated.(model)
-	if current.modal != "" || current.editor.Value() != "workspace import " || !current.editor.Focused() {
+	if current.modal != "" || current.editor.Value() != "factory workspace import " || !current.editor.Focused() {
 		t.Fatalf("add workspace did not focus import editor: modal=%q value=%q", current.modal, current.editor.Value())
 	}
 }
@@ -463,7 +511,7 @@ func TestWorkspacePickerAddShortcutWorksWithExistingWorkspaces(t *testing.T) {
 	current = updated.(model)
 	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	current = updated.(model)
-	if current.editor.Value() != "workspace import " || current.modal != "" {
+	if current.editor.Value() != "factory workspace import " || current.modal != "" {
 		t.Fatalf("workspace add shortcut failed: %q", current.editor.Value())
 	}
 }
@@ -613,7 +661,7 @@ func TestWorkspaceSelectionSurvivesRefreshAndScopesShortcuts(t *testing.T) {
 	current = updated.(model)
 	updated, _ = current.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	current = updated.(model)
-	if current.editor.Value() != "submit beta " {
+	if current.editor.Value() != "objective: " {
 		t.Fatalf("shortcut ignored workspace: %q", current.editor.Value())
 	}
 }
@@ -654,7 +702,7 @@ func TestLargeWorkspaceCatalogCannotHideCommandLine(t *testing.T) {
 	if lipgloss.Height(rendered) > current.height {
 		t.Fatalf("rendered height %d exceeds terminal %d", lipgloss.Height(rendered), current.height)
 	}
-	if !strings.Contains(rendered, "Factory command") {
+	if !strings.Contains(rendered, "Ask Factory AI") {
 		t.Fatal("command line disappeared")
 	}
 }

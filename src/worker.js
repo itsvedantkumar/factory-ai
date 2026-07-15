@@ -13,13 +13,28 @@ import { LocalRetriever } from "./retriever.js";
 import { ActivityStore } from "./activity.js";
 import { objectiveIsTerminal } from "./objective-status.js";
 import { evaluateApprovalPolicy } from "./approval-policy.js";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { parseQuickActionTask } from "./validation.js";
 
 process.title = "factory-ai-worker";
 const config = loadConfig();
 Object.assign(process.env, await loadRuntimeSecrets(config));
 await run("gh", ["auth", "setup-git"], { timeoutMs: 60_000 });
 const bus = createBus(config, config.agentQueue, config.controlQueue);
-const sendControl = (message) => sendMessage(bus.sender, message, `${message.objectiveId}:${message.type}:${message.approvalId ?? message.taskId ?? "plan"}:v1`, message.objectiveId);
+const sendControl = (message) => {
+  const correlationId = message.objectiveId ?? message.actionId;
+  return sendMessage(bus.sender, message, `${correlationId}:${message.type}:${message.approvalId ?? message.taskId ?? "action"}:v1`, correlationId);
+};
+async function readActionState(actionId) {
+  if (!actionId) return null;
+  try {
+    return JSON.parse(await readFile(path.join(config.stateDir, "actions", actionId, "state.json"), "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
 const scannerSuite = new ScannerSuite();
 async function requestApproval(input, context) {
   if (context.message.approvalGranted) return { skipped: true };
@@ -28,8 +43,9 @@ async function requestApproval(input, context) {
   await sendControl({ type: "approval_request", objectiveId: context.message.objectiveId, approvalId, policy: input.policy, reason: input.reason, actor: "factory-policy", requestedAt: now.toISOString(), expiresAt: input.expiresAt ?? new Date(now.getTime() + 86_400_000).toISOString(), checkpoint: context.message.task.id });
   return { approvalId };
 }
+const workspaces = new WorkspaceManager(config.workspaceDir, config.timeoutMs);
 const executor = new AgentExecutor({
-  workspaces: new WorkspaceManager(config.workspaceDir, config.timeoutMs),
+  workspaces,
   agentRunner: new ContainerAgentRunner({ image: config.workerImage, memoryDir: config.memoryDir, timeoutMs: config.timeoutMs, activityStore: new ActivityStore(config.stateDir) }),
   scannerSuite,
   retriever: new LocalRetriever({ stateDir: config.stateDir }),
@@ -54,7 +70,18 @@ const subscription = bus.receiver.subscribe({
   processMessage: async (message) => {
     const body = message.body;
     try {
-      if (await objectiveIsTerminal(config.stateDir, body?.objectiveId)) {
+      if (body?.type === "quick_action_task") {
+        const packet = parseQuickActionTask(body);
+        const state = await readActionState(packet.actionId);
+        if (!state || JSON.stringify(state.action) !== JSON.stringify(packet.action)) throw new Error("Quick action task does not match durable control state");
+        if (["succeeded", "failed", "cancelled"].includes(state.status)) {
+          await workspaces.removeAction(packet.action);
+          log("info", "terminal_action_message_discarded", { actionId: body.actionId });
+          await bus.receiver.completeMessage(message);
+          return;
+        }
+      }
+      if (body?.type !== "quick_action_task" && await objectiveIsTerminal(config.stateDir, body?.objectiveId)) {
         log("info", "terminal_objective_message_discarded", { objectiveId: body.objectiveId, taskId: body.task?.id });
         await bus.receiver.completeMessage(message);
         return;
@@ -70,12 +97,12 @@ const subscription = bus.receiver.subscribe({
       });
       const permanent = error.message.includes("content_filter") || message.deliveryCount >= config.maxDeliveryCount;
       if (permanent) {
-        await sendControl({
-          type: "failure_result",
-          objectiveId: body?.objectiveId,
-          taskId: body?.task?.id,
-          error: String(error.message).slice(0, 2000),
-        });
+        await sendControl(body?.type === "quick_action_task"
+          ? { type: "quick_action_failure", actionId: body.actionId, error: String(error.message).slice(0, 2000) }
+          : { type: "failure_result", objectiveId: body?.objectiveId, taskId: body?.task?.id, error: String(error.message).slice(0, 2000) });
+        if (body?.type === "quick_action_task") {
+          try { await workspaces.removeAction(parseQuickActionTask(body).action); } catch {}
+        }
         await bus.receiver.deadLetterMessage(message, {
           deadLetterReason: "MaxDeliveryExceeded",
           deadLetterErrorDescription: String(error.message).slice(0, 4096),

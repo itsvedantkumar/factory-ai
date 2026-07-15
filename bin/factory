@@ -41,7 +41,7 @@ usage() {
     '  workspace sync now NAME    Synchronize a workspace immediately' \
     '  workspace sync status      Show synchronization state' \
     '  submit [--new] WORKSPACE OBJECTIVE  Queue an idempotent objective' \
-    '  issue OWNER/REPO NUMBER     Process a GitHub issue' \
+    '  prompt WORKSPACE TEXT       Auto-route a prompt to a quick action or objective' \
     '  init PATH                  Add Factory instructions to a project' \
     '' \
     'OPERATE' \
@@ -573,6 +573,16 @@ case "$command" in
   submit)
     [[ $# -ge 2 ]] || { printf 'Usage: factory submit [--new] WORKSPACE objective\n' >&2; exit 2; }
     SERVICE_BUS_NAMESPACE="$NAMESPACE" CONTROL_QUEUE=control-events exec node "$FACTORY_ROOT/src/submit-cli.js" "$@"
+    ;;
+  prompt)
+    [[ $# -ge 2 ]] || { printf 'Usage: factory prompt WORKSPACE text\n' >&2; exit 2; }
+    SERVICE_BUS_NAMESPACE="$NAMESPACE" CONTROL_QUEUE=control-events exec node "$FACTORY_ROOT/src/prompt-cli.js" "$@"
+    ;;
+  sandbox)
+    action=${1:-}
+    shift || true
+    [[ $action == run && $# -ge 3 ]] || { printf 'Usage: factory sandbox run WORKSPACE [--preview] -- COMMAND [ARGS]\n' >&2; exit 2; }
+    FACTORY_ROOT="$FACTORY_ROOT" exec node "$FACTORY_ROOT/src/local-sandbox-cli.js" "$@"
     ;;
   dashboard|status)
     remote 'sudo -u factory node /opt/agent-factory/app/src/run-with-env.js /etc/agent-factory-control.env node /opt/agent-factory/app/src/dashboard.js'

@@ -24,3 +24,19 @@ test("creates a self-contained clone for every task", async () => {
   );
   assert.equal((await stat(path.join(directory, ".git"))).isDirectory(), true);
 });
+
+test("quick prompts use an isolated read-only clone without publishing a branch", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "factory-action-"));
+  const source = path.join(root, "source");
+  await mkdir(source);
+  await run("git", ["init", "-b", "main"], { cwd: source });
+  await run("git", ["config", "user.name", "Test"], { cwd: source });
+  await run("git", ["config", "user.email", "test@example.com"], { cwd: source });
+  await writeFile(path.join(source, "README.md"), "test\n");
+  await run("git", ["add", "."], { cwd: source });
+  await run("git", ["commit", "-m", "init"], { cwd: source });
+  const manager = new WorkspaceManager(path.join(root, "workspaces"), 30_000);
+  const directory = await manager.prepareAction({ id: "action-123", repository: source, baseBranch: "main" });
+  assert.equal((await stat(path.join(directory, ".git"))).isDirectory(), true);
+  assert.equal((await run("git", ["branch", "--list"], { cwd: source })).stdout.trim(), "* main");
+});

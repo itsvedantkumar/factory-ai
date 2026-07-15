@@ -4,6 +4,38 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.8.0] - 2026-07-15
+
+### Added
+
+- Added workspace-scoped quick prompts, persisted separately from delivery objectives and rendered in the Session view.
+- Added automatic prompt routing: delivery requests become objectives while questions and inspections become quick actions; `objective:`, `goal:`, `prompt:`, and `ask:` provide explicit overrides.
+- Added `/run` for explicit local workspace commands and `/preview` for local development servers with detected preview URLs.
+- Added multiline prompts with `Alt+Enter` and a three-line prompt composer.
+
+### Changed
+
+- Plain text in the TUI is now a prompt instead of an implicit Factory CLI command. Existing administrative commands remain available with `factory ...` or slash commands.
+- Objectives remain a dedicated delivery section and no longer need to be selected before asking Factory AI a question.
+- Refresh sources are time-bounded and usage synchronization no longer blocks dashboard refresh.
+- Long workspace imports, updates, runs, and previews stream in an interruptible terminal process.
+
+### Security
+
+- Quick prompts execute in isolated read-only repository clones and never publish branches.
+- Run and preview commands require confirmation and execute in a capability-dropped local Docker sandbox on an internal network. A secret-filtered repository snapshot is copied from a read-only host mount into an ephemeral volume; host credentials, environment, source paths, and Docker sockets are not exposed to executed code.
+- Local sandbox commands use structured argv and package-operation allowlists; shell execution, package publishing, credential operations, global installs, and Git pushes are rejected.
+- Quick-action state retains at most 500 terminal actions for 30 days; active work is never pruned.
+- Shutdown, update, workspace removal, and secret deletion require explicit confirmation in the TUI.
+
+### Fixed
+
+- Displayed workspace and dashboard warnings instead of silently rendering empty state.
+- Distinguished failed command output from successful command output.
+- Prevented duplicate Enter submissions while a command is active.
+- Prevented failed diff retrieval text from being copied as source code.
+- Routed keyboard workspace switching through the same context-reset path as picker selection.
+
 ## [2.7.3] - 2026-07-15
 
 ### Added

@@ -57,7 +57,7 @@ export class AzureAgentRunner {
     const skills = await Promise.all(capabilities.filter((item) => item.type === "skill").map(async (item) => (
       `ALLOWLISTED SKILL ${item.name}@${item.version}:\n${await readFile(item.path, "utf8")}`
     )));
-    const repositoryInstructions = await loadRepositoryInstructions(directory);
+    const repositoryInstructions = objective.quickAction ? "" : await loadRepositoryInstructions(directory);
     return [
       `You are a ${factoryName} isolated ${task.role} subagent. Factory purpose: ${factoryPurpose}.`,
       "Work only in the assigned repository. Never inspect credentials, push Git refs, deploy, or install global tools.",

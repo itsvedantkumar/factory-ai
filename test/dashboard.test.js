@@ -52,6 +52,18 @@ test("aggregates objective and task operator state", () => {
   assert.deepEqual(dashboard.modelUsage["azureai-textved/gpt-5.5"], { tasks: 1, inputTokens: 100, cachedInputTokens: 40, outputTokens: 20, durationMs: 1200 });
 });
 
+test("quick actions appear separately and never inflate objective counts", () => {
+  const dashboard = aggregateDashboard({
+    states: [],
+    actions: [{ action: { id: "action-123", kind: "prompt", prompt: "Explain routing", workspace: "app", repository: "https://github.com/acme/app.git", createdAt: "2026-07-15T00:00:00.000Z" }, status: "succeeded", result: { summary: "Routes map paths.", checks: [], risks: [] } }],
+    now: new Date("2026-07-15T00:01:00.000Z"),
+  });
+  assert.equal(dashboard.objectives.length, 0);
+  assert.deepEqual(dashboard.summary.objectives, {});
+  assert.equal(dashboard.actions[0].id, "action-123");
+  assert.equal(dashboard.actions[0].summary, "Routes map paths.");
+});
+
 test("loads month-to-date Azure cost grouped by service", async () => {
   const cost = await loadAzureCost({ subscriptionId: "sub", resourceGroup: "rg" }, {
     credential: { getToken: async () => ({ token: "token" }) },

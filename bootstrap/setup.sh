@@ -67,7 +67,7 @@ for secret_name in "${GITHUB_TOKEN_SECRET:-github-token}"; do
   az keyvault secret show --vault-name "$KEY_VAULT_NAME" --name "$secret_name" --query id --output none
 done
 
-install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/home /opt/agent-factory/state/memory /opt/agent-factory/state/telegram /opt/agent-factory/state/retrieval /opt/agent-factory/state/usage /opt/agent-factory/workspaces /opt/agent-factory/logs
+install -d -o "$FACTORY_USER" -g "$FACTORY_USER" -m 0750 /opt/agent-factory/state /opt/agent-factory/state/actions /opt/agent-factory/state/home /opt/agent-factory/state/memory /opt/agent-factory/state/telegram /opt/agent-factory/state/retrieval /opt/agent-factory/state/usage /opt/agent-factory/workspaces /opt/agent-factory/logs
 if [[ -f /opt/agent-factory/state/memory/knowledge-graph.jsonl && ! -e /opt/agent-factory/state/memory/legacy-unscoped-knowledge-graph.jsonl ]]; then
   mv /opt/agent-factory/state/memory/knowledge-graph.jsonl /opt/agent-factory/state/memory/legacy-unscoped-knowledge-graph.jsonl
 fi

@@ -1,6 +1,6 @@
 {
   "name": "factory-ai",
-  "version": "2.7.3",
+  "version": "2.8.0",
   "description": "Deploy a private autonomous coding-agent factory on Azure: isolated builders, testers, security reviewers, durable orchestration, multi-model routing, memory, cost controls, and gated GitHub pull requests.",
   "private": false,
   "license": "MIT",
@@ -55,7 +55,8 @@
     "scripts/",
     "templates/",
     "*.md",
-    "Dockerfile.worker"
+    "Dockerfile.worker",
+    "Dockerfile.local"
   ],
   "scripts": {
     "test": "node scripts/test.js",

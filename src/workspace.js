@@ -26,6 +26,25 @@ export class WorkspaceManager {
     return path.join(this.rootFor(objectiveId), "tasks", taskId);
   }
 
+  async prepareAction(action) {
+    const directory = path.join(this.root, "actions", action.id);
+    if (await exists(path.join(directory, ".git"))) return directory;
+    await mkdir(path.dirname(directory), { recursive: true, mode: 0o750 });
+    const temporary = `${directory}.clone-${process.pid}`;
+    await rm(temporary, { recursive: true, force: true });
+    await run("git", ["clone", "--depth", "1", "--branch", action.baseBranch, "--single-branch", action.repository, temporary], { timeoutMs: this.timeoutMs });
+    await rename(temporary, directory);
+    return directory;
+  }
+
+  async removeAction(action) {
+    if (!/^action-[A-Za-z0-9_-]{1,57}$/.test(action?.id ?? "")) throw new Error("Invalid action cleanup ID");
+    const actionsRoot = path.resolve(this.root, "actions");
+    const target = path.resolve(actionsRoot, action.id);
+    if (!target.startsWith(`${actionsRoot}${path.sep}`)) throw new Error("Action cleanup escaped workspace root");
+    await rm(target, { recursive: true, force: true });
+  }
+
   async ensureObjective(objective) {
     const root = this.rootFor(objective.id);
     const control = path.join(root, "control");

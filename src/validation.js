@@ -18,6 +18,18 @@ const objectiveSchema = z.object({
   createdAt: z.string().datetime().optional(),
 }).strict();
 
+const quickActionSchema = z.object({
+  id: identifier.refine((value) => value.startsWith("action-"), "Action ID must start with action-"),
+  type: z.literal("quick_action"),
+  kind: z.literal("prompt"),
+  prompt: z.string().trim().min(1).max(12_000),
+  workspace: identifier,
+  repository,
+  baseBranch: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/).default("main"),
+  workspaceContext: z.string().max(20_000).optional(),
+  createdAt: z.string().datetime(),
+}).strict();
+
 export const taskSchema = z.object({
   id: identifier,
   role: z.enum(ROLES),
@@ -66,6 +78,26 @@ const resultMessageSchema = taskResultSchema.extend({
   scannerEvidence: scannerEvidenceSchema.optional(),
 }).strict();
 
+const quickActionResultSchema = taskResultSchema.extend({
+  type: z.literal("quick_action_result"),
+  actionId: identifier,
+  status: z.literal("succeeded"),
+  telemetry: taskResultSchema.shape.telemetry.optional(),
+}).strict();
+
+const quickActionTaskSchema = z.object({
+  type: z.literal("quick_action_task"),
+  actionId: identifier.refine((value) => value.startsWith("action-"), "Action ID must start with action-"),
+  action: quickActionSchema,
+  task: taskSchema,
+}).strict().refine((value) => value.actionId === value.action.id, "Action IDs must match").refine((value) => value.task.id === "respond" && value.task.role === "scout", "Quick actions require the fixed scout task");
+
+const quickActionFailureSchema = z.object({
+  type: z.literal("quick_action_failure"),
+  actionId: identifier.refine((value) => value.startsWith("action-"), "Action ID must start with action-"),
+  error: z.string().trim().min(1).max(2000),
+}).strict();
+
 const approvalRequestMessageSchema = z.object({
   type: z.literal("approval_request"),
   objectiveId: identifier,
@@ -94,6 +126,22 @@ const approvalDecisionMessageSchema = z.object({
 
 export function parseObjective(value) {
   return objectiveSchema.parse(value);
+}
+
+export function parseQuickAction(value) {
+  return quickActionSchema.parse(value);
+}
+
+export function parseQuickActionResult(value) {
+  return quickActionResultSchema.parse(value);
+}
+
+export function parseQuickActionTask(value) {
+  return quickActionTaskSchema.parse(value);
+}
+
+export function parseQuickActionFailure(value) {
+  return quickActionFailureSchema.parse(value);
 }
 
 export function parsePlan(value) {

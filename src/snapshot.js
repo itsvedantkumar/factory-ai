@@ -9,10 +9,13 @@ import { run } from "./process.js";
 import { safeOperatorLogs } from "./operator-logs.js";
 import { syncUsageStore } from "./usage-store.js";
 import { createHash } from "node:crypto";
+import path from "node:path";
+import { pruneActionStates } from "./action-retention.js";
 
 process.title = "factory-ai-snapshot";
 const config = loadConfig();
 const root = process.env.FACTORY_STATE_DIR ?? "/opt/agent-factory/state";
+await pruneActionStates(path.join(root, "actions"));
 const loaded = await loadLocalState(root);
 const queue = await loadQueueMetrics(config);
 let cost = null;

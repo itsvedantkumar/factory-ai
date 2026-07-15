@@ -71,6 +71,21 @@ type objective struct {
 	} `json:"approval"`
 }
 
+type quickAction struct {
+	ID          string   `json:"id"`
+	Kind        string   `json:"kind"`
+	Prompt      string   `json:"prompt"`
+	Workspace   string   `json:"workspace"`
+	Repository  string   `json:"repository"`
+	Status      string   `json:"status"`
+	Summary     string   `json:"summary"`
+	Checks      []string `json:"checks"`
+	Risks       []string `json:"risks"`
+	Failure     string   `json:"failure"`
+	CreatedAt   string   `json:"createdAt"`
+	CompletedAt string   `json:"completedAt"`
+}
+
 type workspace struct {
 	Name       string `json:"name"`
 	Repository string `json:"repository"`
@@ -108,6 +123,7 @@ type dashboard struct {
 		Objectives map[string]int `json:"objectives"`
 	} `json:"summary"`
 	Objectives []objective      `json:"objectives"`
+	Actions    []quickAction    `json:"actions"`
 	ModelUsage map[string]usage `json:"modelUsage"`
 	Secrets    []struct {
 		Name    string `json:"name"`
@@ -171,9 +187,11 @@ type model struct {
 	syncScheduler       schedulerStatus
 	selectedWorkspace   string
 	loading             bool
+	commandRunning      bool
 	err                 error
 	commandOutput       string
 	commandHistory      []string
+	confirmationLine    string
 	historyIndex        int
 	editor              textarea.Model
 	content             viewport.Model
@@ -213,7 +231,9 @@ type paletteAction struct {
 }
 
 var paletteActions = []paletteAction{
-	{title: "New objective", description: "Submit work to the selected workspace", prefix: "submit {workspace} "},
+	{title: "New objective", description: "Describe delivery work; workspace is automatic", prefix: "objective: "},
+	{title: "Run command", description: "Run a safe command in the selected workspace", prefix: "/run "},
+	{title: "Preview app", description: "Run the selected workspace dev server", prefix: "/preview"},
 	{title: "Import workspace", description: "Add a local path or owner/repository", prefix: "workspace import "},
 	{title: "Enable Git sync", description: "Opt in selected workspace to two-way sync", prefix: "workspace sync enable {workspace}"},
 	{title: "Sync workspace now", description: "Push or fast-forward committed changes", prefix: "workspace sync now {workspace}"},
@@ -246,6 +266,8 @@ var commandCompletions = []completion{
 	{value: "/workspace", description: "Choose a workspace"},
 	{value: "/workspace add ", description: "Import a local path or OWNER/REPO"},
 	{value: "/objective", description: "Choose an objective"},
+	{value: "/run ", description: "Run a command in this workspace"},
+	{value: "/preview", description: "Start the workspace development server"},
 	{value: "/agent", description: "Choose a sub-agent"},
 	{value: "/diff", description: "Show selected agent code"},
 	{value: "/activity", description: "Show selected agent activity"},
@@ -375,7 +397,7 @@ func safeLocalCommand(command string) string {
 		"extension": true, "github": true, "init": true, "issue": true, "logs": true,
 		"models": true, "pause": true, "queue": true, "report": true, "resume": true,
 		"secret": true, "setup": true, "shutdown": true, "start": true, "status": true,
-		"submit": true, "telegram": true, "ui": true, "update": true, "usage": true,
+		"prompt": true, "submit": true, "telegram": true, "ui": true, "update": true, "usage": true,
 		"workspace": true,
 	}
 	if allowed[command] {
@@ -433,11 +455,66 @@ func parseCommandLine(value string) ([]string, error) {
 	return args, nil
 }
 
+func inputKind(value string) string {
+	line := strings.TrimSpace(value)
+	if strings.HasPrefix(line, "/") {
+		return "slash"
+	}
+	if line == "factory" || strings.HasPrefix(line, "factory ") {
+		return "factory"
+	}
+	return "prompt"
+}
+
+func validateWorkspaceCommand(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("enter a command to run")
+	}
+	allowed := map[string]bool{"git": true, "node": true, "npm": true, "npx": true, "pnpm": true, "yarn": true}
+	if !allowed[args[0]] {
+		return fmt.Errorf("command not allowed: %s", args[0])
+	}
+	denied := map[string]bool{"publish": true, "unpublish": true, "login": true, "logout": true, "token": true, "config": true, "dlx": true, "global": true, "-g": true, "--global": true, "push": true, "remote": true, "credential": true}
+	for _, arg := range args[1:] {
+		if denied[arg] {
+			return fmt.Errorf("unsafe command operation: %s", arg)
+		}
+	}
+	if args[0] == "npx" && (len(args) < 2 || args[1] != "--no-install") {
+		return fmt.Errorf("npx requires --no-install")
+	}
+	if args[0] == "git" {
+		readOnly := map[string]bool{"status": true, "diff": true, "log": true, "show": true, "grep": true, "ls-files": true, "rev-parse": true}
+		if len(args) < 2 || !readOnly[args[1]] {
+			return fmt.Errorf("only read-only Git commands are allowed")
+		}
+	}
+	return nil
+}
+
+func defaultPreviewCommand(item workspace) []string {
+	manager := "npm"
+	if _, err := os.Stat(filepath.Join(item.LocalPath, "pnpm-lock.yaml")); err == nil {
+		manager = "pnpm"
+	} else if _, err := os.Stat(filepath.Join(item.LocalPath, "yarn.lock")); err == nil {
+		manager = "yarn"
+	}
+	args := []string{manager, "run", "dev"}
+	if data, err := os.ReadFile(filepath.Join(item.LocalPath, "package.json")); err == nil {
+		if bytes.Contains(data, []byte(`"vite"`)) {
+			args = append(args, "--", "--host", "0.0.0.0")
+		} else if bytes.Contains(data, []byte(`"next"`)) {
+			args = append(args, "--", "-H", "0.0.0.0")
+		}
+	}
+	return args
+}
+
 func validateFactoryCommand(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("enter a factory command")
 	}
-	allowed := map[string]bool{"setup": true, "configure": true, "models": true, "acp": true, "extension": true, "github": true, "telegram": true, "workspace": true, "submit": true, "issue": true, "init": true, "secret": true, "agent": true, "dashboard": true, "status": true, "queue": true, "report": true, "logs": true, "doctor": true, "pause": true, "resume": true, "shutdown": true, "start": true, "update": true, "approval": true, "help": true, "--help": true, "-h": true}
+	allowed := map[string]bool{"setup": true, "configure": true, "models": true, "acp": true, "extension": true, "github": true, "telegram": true, "workspace": true, "prompt": true, "submit": true, "issue": true, "init": true, "secret": true, "agent": true, "dashboard": true, "status": true, "queue": true, "report": true, "usage": true, "logs": true, "doctor": true, "pause": true, "resume": true, "shutdown": true, "start": true, "update": true, "approval": true, "help": true, "--help": true, "-h": true}
 	if args[0] == "ui" {
 		return fmt.Errorf("the UI command cannot be launched inside itself")
 	}
@@ -447,11 +524,21 @@ func validateFactoryCommand(args []string) error {
 	return nil
 }
 
+func requiresConfirmation(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	if args[0] == "shutdown" || len(args) > 1 && args[0] == "update" && args[1] == "now" {
+		return true
+	}
+	return len(args) > 1 && ((args[0] == "workspace" && args[1] == "remove") || (args[0] == "secret" && args[1] == "delete") || (args[0] == "github" && args[1] == "transfer"))
+}
+
 func interactiveFactoryCommand(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
-	return args[0] == "setup" || args[0] == "configure" || args[0] == "secret" && len(args) > 1 && args[1] == "set" || args[0] == "telegram" && len(args) > 1 && args[1] == "configure"
+	return args[0] == "setup" || args[0] == "configure" || args[0] == "secret" && len(args) > 1 && args[1] == "set" || args[0] == "telegram" && len(args) > 1 && args[1] == "configure" || args[0] == "workspace" && len(args) > 1 && args[1] == "import" || args[0] == "update" && len(args) > 1 && args[1] == "now"
 }
 
 func executeFactoryCommand(args []string) tea.Cmd {
@@ -460,6 +547,24 @@ func executeFactoryCommand(args []string) tea.Cmd {
 		output, err := exec.Command("factory", args...).CombinedOutput()
 		return commandResultMsg{command: command, output: string(output), err: err}
 	}
+}
+
+func interactiveSandboxProcess(item workspace, args []string, preview bool) tea.Cmd {
+	var transcript synchronizedBuffer
+	factoryArgs := []string{"sandbox", "run", item.Name}
+	if preview {
+		factoryArgs = append(factoryArgs, "--preview")
+	}
+	factoryArgs = append(factoryArgs, "--")
+	factoryArgs = append(factoryArgs, args...)
+	command := exec.Command("factory", factoryArgs...)
+	command.Stdin = os.Stdin
+	command.Stdout = io.MultiWriter(os.Stdout, &transcript)
+	command.Stderr = io.MultiWriter(os.Stderr, &transcript)
+	label := item.Name + " $ " + strings.Join(args, " ")
+	return tea.ExecProcess(command, func(err error) tea.Msg {
+		return commandResultMsg{command: label, output: transcript.String(), err: err}
+	})
 }
 
 func fetchAgentDiffCmd(objectiveID, taskID string, requestID int) tea.Cmd {
@@ -547,7 +652,9 @@ func readConfig() map[string]string {
 }
 
 func download(client *azblob.Client, name string) ([]byte, error) {
-	response, err := client.DownloadStream(context.Background(), "operator", name, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	response, err := client.DownloadStream(ctx, "operator", name, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -617,7 +724,7 @@ func fetchCmd(client *azblob.Client, requestID int) tea.Cmd {
 		var syncScheduler schedulerStatus
 		workspaceErr := ""
 		var group sync.WaitGroup
-		group.Add(5)
+		group.Add(4)
 		go func() {
 			defer group.Done()
 			data, err := download(client, "dashboard.json")
@@ -627,7 +734,6 @@ func fetchCmd(client *azblob.Client, requestID int) tea.Cmd {
 			dashboardErr = err
 		}()
 		go func() {
-			defer group.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			_ = exec.CommandContext(ctx, "factory", "usage", "sync").Run()
@@ -635,7 +741,9 @@ func fetchCmd(client *azblob.Client, requestID int) tea.Cmd {
 		go func() { defer group.Done(); logData, _ = download(client, "logs.txt") }()
 		go func() {
 			defer group.Done()
-			if output, commandError := exec.Command("factory", "workspace", "list").Output(); commandError == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if output, commandError := exec.CommandContext(ctx, "factory", "workspace", "list").Output(); commandError == nil {
 				if decodeError := json.Unmarshal(output, &workspaces); decodeError != nil {
 					workspaceErr = decodeError.Error()
 				}
@@ -645,7 +753,9 @@ func fetchCmd(client *azblob.Client, requestID int) tea.Cmd {
 		}()
 		go func() {
 			defer group.Done()
-			if output, commandError := exec.Command("factory", "workspace", "sync", "status").Output(); commandError == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if output, commandError := exec.CommandContext(ctx, "factory", "workspace", "sync", "status").Output(); commandError == nil {
 				var status struct {
 					Scheduler schedulerStatus `json:"scheduler"`
 				}
@@ -672,11 +782,11 @@ func tickCmd() tea.Cmd {
 
 func newModel(client *azblob.Client, factoryName, purpose string) model {
 	editor := textarea.New()
-	editor.Placeholder = "Type /help, /workspace, /agent, or any Factory command"
+	editor.Placeholder = "Ask Factory AI anything · objective: ... · /run · /preview"
 	editor.Prompt = ""
 	editor.ShowLineNumbers = false
 	editor.CharLimit = 12_000
-	editor.SetHeight(1)
+	editor.SetHeight(3)
 	editor.Focus()
 	return model{
 		client:         client,
@@ -693,6 +803,11 @@ func newModel(client *azblob.Client, factoryName, purpose string) model {
 func (m model) completions() []completion {
 	input := strings.ToLower(m.editor.Value())
 	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	slashMode := strings.HasPrefix(input, "/")
+	factoryMode := input == "factory" || strings.HasPrefix(input, "factory ")
+	if !slashMode && !factoryMode {
 		return nil
 	}
 	candidates := append([]completion(nil), commandCompletions...)
@@ -715,6 +830,12 @@ func (m model) completions() []completion {
 	}
 	result := make([]completion, 0, 5)
 	for _, candidate := range candidates {
+		if slashMode && !strings.HasPrefix(candidate.value, "/") || factoryMode && strings.HasPrefix(candidate.value, "/") {
+			continue
+		}
+		if factoryMode {
+			candidate.value = "factory " + candidate.value
+		}
 		candidateValue := strings.ToLower(candidate.value)
 		if candidateValue != input && strings.HasPrefix(candidateValue, input) {
 			result = append(result, candidate)
@@ -728,16 +849,16 @@ func (m model) completions() []completion {
 
 func (m model) editorHeight() int {
 	if count := len(m.completions()); count > 0 {
-		return 4 + min(count, 5)
+		return 6 + min(count, 5)
 	}
-	return 4
+	return 6
 }
 
 func (m model) layoutDimensions() (editorHeight, topHeight, leftWidth, rightWidth int) {
 	width, height := max(m.width, 1), max(m.height, 1)
 	editorHeight = m.editorHeight()
-	if height < 18 && editorHeight == 4 {
-		editorHeight = 3
+	if height < 18 {
+		editorHeight = min(editorHeight, 3)
 	}
 	topHeight = max(height-editorHeight-2, 1)
 	leftWidth = width
@@ -854,7 +975,7 @@ func (m *model) chooseModalItem() tea.Cmd {
 		if item.id == addWorkspaceID {
 			m.modal = ""
 			m.modalSelectedID = ""
-			m.setEditorValue("workspace import ")
+			m.setEditorValue("factory workspace import ")
 			m.resize()
 			m.syncViewport()
 			return m.editor.Focus()
@@ -869,7 +990,7 @@ func (m *model) chooseModalItem() tea.Cmd {
 		if item.id == newObjectiveID {
 			m.modal = ""
 			m.modalSelectedID = ""
-			m.setEditorValue("submit {workspace} ")
+			m.setEditorValue("objective: ")
 			m.resize()
 			return m.editor.Focus()
 		}
@@ -1011,7 +1132,11 @@ func (m *model) resize() {
 	m.content.Width = max(contentWidth-4, 1)
 	m.content.Height = max(topHeight-3, 1)
 	m.editor.SetWidth(max(width-13, 1))
-	m.editor.SetHeight(1)
+	if m.height < 18 {
+		m.editor.SetHeight(1)
+	} else {
+		m.editor.SetHeight(3)
+	}
 }
 
 func (m *model) syncViewport() {
@@ -1052,7 +1177,7 @@ func (m *model) runSlashCommand(line string) (bool, tea.Cmd) {
 		m.notice = "Invalid slash command. Type /help"
 		return true, nil
 	}
-	known := map[string]bool{"workspace": true, "ws": true, "objective": true, "session": true, "agent": true, "new": true, "diff": true, "code": true, "activity": true, "copy": true, "help": true, "commands": true, "refresh": true, "quit": true, "exit": true}
+	known := map[string]bool{"workspace": true, "ws": true, "objective": true, "session": true, "agent": true, "new": true, "run": true, "preview": true, "diff": true, "code": true, "activity": true, "copy": true, "help": true, "commands": true, "refresh": true, "quit": true, "exit": true}
 	if known[args[0]] {
 		_ = appendLocalEvent("command.executed", map[string]string{"command": "/" + args[0]})
 	}
@@ -1066,12 +1191,13 @@ func (m *model) runSlashCommand(line string) (bool, tea.Cmd) {
 		}
 		if args[1] == "add" {
 			if len(args) == 2 {
-				m.setEditorValue("workspace import ")
+				m.setEditorValue("factory workspace import ")
 				return true, nil
 			}
 			finish()
 			m.loading = true
-			return true, executeFactoryCommand(append([]string{"workspace", "import"}, args[2:]...))
+			m.commandRunning = true
+			return true, interactiveFactoryProcess(append([]string{"workspace", "import"}, args[2:]...))
 		}
 		for index, item := range m.workspaces {
 			if strings.EqualFold(item.Name, args[1]) {
@@ -1096,7 +1222,7 @@ func (m *model) runSlashCommand(line string) (bool, tea.Cmd) {
 				return true, nil
 			}
 			if len(args) == 2 {
-				m.setEditorValue("submit {workspace} ")
+				m.setEditorValue("objective: ")
 				return true, nil
 			}
 			finish()
@@ -1142,12 +1268,41 @@ func (m *model) runSlashCommand(line string) (bool, tea.Cmd) {
 			return true, nil
 		}
 		if len(args) == 1 {
-			m.setEditorValue("submit {workspace} ")
+			m.setEditorValue("objective: ")
 			return true, nil
 		}
 		finish()
 		m.loading = true
+		m.commandRunning = true
 		return true, executeFactoryCommand(append([]string{"submit", selected.Name}, args[1:]...))
+	case "run", "preview":
+		selected := m.selected()
+		if selected == nil || selected.LocalPath == "" {
+			m.notice = "Choose a local workspace with /workspace first"
+			return true, nil
+		}
+		commandArgs := args[1:]
+		if len(commandArgs) == 0 && args[0] == "preview" {
+			commandArgs = defaultPreviewCommand(*selected)
+		}
+		if err := validateWorkspaceCommand(commandArgs); err != nil {
+			m.notice = err.Error()
+			return true, nil
+		}
+		confirmation := selected.Name + "\x00" + strings.TrimSpace(line)
+		if m.confirmationLine != confirmation {
+			m.confirmationLine = confirmation
+			m.notice = "This runs repository code inside a local Docker sandbox. Press Enter again to continue."
+			return true, nil
+		}
+		m.confirmationLine = ""
+		finish()
+		m.loading = true
+		m.commandRunning = true
+		if args[0] == "preview" {
+			return true, interactiveSandboxProcess(*selected, commandArgs, true)
+		}
+		return true, interactiveSandboxProcess(*selected, commandArgs, false)
 	case "diff", "code":
 		objective := m.selectedObjective()
 		if objective == nil || m.selectedAgentID == "" {
@@ -1171,7 +1326,7 @@ func (m *model) runSlashCommand(line string) (bool, tea.Cmd) {
 	case "copy":
 		finish()
 		objective := m.selectedObjective()
-		if objective == nil || m.agentPatchLoading || m.agentView != "diff" || m.agentPatchKey != objective.ID+":"+m.selectedAgentID || m.agentPatch == "" {
+		if objective == nil || m.agentPatchLoading || m.agentView != "diff" || m.agentPatchKey != objective.ID+":"+m.selectedAgentID || m.agentPatch == "" || m.agentPatchSource == "error" {
 			m.notice = "Wait for /diff to finish before copying"
 			return true, nil
 		}
@@ -1213,6 +1368,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleMouse(msg)
 	case tea.KeyMsg:
 		m.notice = ""
+		if msg.String() != "enter" {
+			m.confirmationLine = ""
+		}
 		if msg.String() == "f1" {
 			if m.modal == "help" {
 				m.modal = ""
@@ -1357,7 +1515,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, fetchAgentDiffCmd(objective.ID, m.selectedAgentID, m.agentDiffRequest)
 		case "ctrl+y":
 			objective := m.selectedObjective()
-			if objective == nil || m.agentView != "diff" || m.agentPatchKey != objective.ID+":"+m.selectedAgentID || m.agentPatch == "" {
+			if objective == nil || m.agentView != "diff" || m.agentPatchKey != objective.ID+":"+m.selectedAgentID || m.agentPatch == "" || m.agentPatchSource == "error" {
 				m.notice = "Open an agent code diff with Ctrl+D before copying"
 				return m, nil
 			}
@@ -1397,14 +1555,14 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "ctrl+p":
 			if index := m.selectedIndex(); index > 0 {
-				m.selectedWorkspace = m.workspaces[index-1].Name
+				m.selectWorkspace(index - 1)
 			}
 			m.syncViewport()
 			m.content.GotoTop()
 			return m, nil
 		case "ctrl+n":
 			if index := m.selectedIndex(); index >= 0 && index < len(m.workspaces)-1 {
-				m.selectedWorkspace = m.workspaces[index+1].Name
+				m.selectWorkspace(index + 1)
 			}
 			m.syncViewport()
 			m.content.GotoTop()
@@ -1450,19 +1608,45 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.editor.Reset()
 			}
 			return m, nil
+		case "alt+enter":
+			m.editor.InsertString("\n")
+			m.resize()
+			m.syncViewport()
+			return m, nil
 		case "enter":
 			line := strings.TrimSpace(m.editor.Value())
-			slashRoots := map[string]bool{"/workspace": true, "/ws": true, "/objective": true, "/session": true, "/agent": true, "/diff": true, "/code": true, "/activity": true, "/copy": true, "/help": true, "/commands": true, "/refresh": true, "/quit": true, "/exit": true}
+			if line == "" {
+				return m, nil
+			}
+			if m.commandRunning {
+				m.notice = "A command is already running. Wait for it to finish."
+				return m, nil
+			}
+			slashRoots := map[string]bool{"/workspace": true, "/ws": true, "/objective": true, "/session": true, "/agent": true, "/run": true, "/preview": true, "/diff": true, "/code": true, "/activity": true, "/copy": true, "/help": true, "/commands": true, "/refresh": true, "/quit": true, "/exit": true}
 			if slashRoots[line] {
 				_, command := m.runSlashCommand(line)
 				return m, command
 			}
-			if m.acceptCompletion() {
+			if (strings.HasPrefix(line, "/") || inputKind(line) == "factory") && m.acceptCompletion() {
 				return m, nil
 			}
 			if strings.HasPrefix(line, "/") {
 				_, command := m.runSlashCommand(line)
 				return m, command
+			}
+			if inputKind(line) == "prompt" {
+				selected := m.selected()
+				if selected == nil {
+					m.notice = "Choose a workspace first. Type /workspace"
+					return m, nil
+				}
+				m.editor.Reset()
+				m.commandHistory = append(m.commandHistory, line)
+				m.historyIndex = len(m.commandHistory)
+				m.loading = true
+				m.commandRunning = true
+				_ = appendLocalEvent("command.executed", map[string]string{"command": "prompt"})
+				return m, executeFactoryCommand([]string{"prompt", selected.Name, line})
 			}
 			args, err := parseCommandLine(line)
 			if err == nil {
@@ -1474,11 +1658,18 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				m.content.GotoBottom()
 				return m, nil
 			}
+			if requiresConfirmation(args) && m.confirmationLine != line {
+				m.confirmationLine = line
+				m.notice = "Consequential command. Press Enter again to confirm, or edit to cancel."
+				return m, nil
+			}
+			m.confirmationLine = ""
 			_ = appendLocalEvent("command.executed", map[string]string{"command": safeLocalCommand(args[0])})
 			m.editor.Reset()
 			m.commandHistory = append(m.commandHistory, line)
 			m.historyIndex = len(m.commandHistory)
 			m.loading = true
+			m.commandRunning = true
 			if interactiveFactoryCommand(args) {
 				return m, interactiveFactoryProcess(args)
 			}
@@ -1521,12 +1712,20 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case commandResultMsg:
 		m.loading = false
+		m.commandRunning = false
 		m.err = nil
 		result := strings.TrimSpace(clean(msg.output))
 		if msg.err != nil && result == "" {
 			result = msg.err.Error()
 		}
-		entry := fmt.Sprintf("$ %s\n%s", clean(msg.command), result)
+		mark := "✓"
+		if msg.err != nil {
+			mark = "✗"
+			if result != "" {
+				result += "\n" + msg.err.Error()
+			}
+		}
+		entry := fmt.Sprintf("%s $ %s\n%s", mark, clean(msg.command), result)
 		if m.commandOutput == "" {
 			m.commandOutput = entry
 		} else {
@@ -1678,8 +1877,38 @@ func (m *model) ensureSelection() {
 
 func (m model) sessionStream() string {
 	selected := m.selectedObjective()
+	var value strings.Builder
+	if m.workspaceErr != "" {
+		fmt.Fprintf(&value, "%s %s\n\n", lipgloss.NewStyle().Foreground(danger).Bold(true).Render("WORKSPACE ERROR"), clean(m.workspaceErr))
+	}
+	for _, warning := range m.dashboard.Warnings {
+		fmt.Fprintf(&value, "%s %s\n", lipgloss.NewStyle().Foreground(warn).Bold(true).Render("WARNING"), clean(warning))
+	}
+	if len(m.dashboard.Warnings) > 0 {
+		value.WriteString("\n")
+	}
+	value.WriteString(lipgloss.NewStyle().Foreground(accent).Bold(true).Render("QUICK ACTIONS") + "\n")
+	actionCount := 0
+	for index := len(m.dashboard.Actions) - 1; index >= 0 && actionCount < 5; index-- {
+		action := m.dashboard.Actions[index]
+		if m.selectedWorkspace != "" && action.Workspace != "" && !strings.EqualFold(action.Workspace, m.selectedWorkspace) {
+			continue
+		}
+		fmt.Fprintf(&value, "%s  %s\n", badge(action.Status), trim(action.Prompt, 100))
+		if action.Summary != "" {
+			fmt.Fprintf(&value, "    %s\n", clean(action.Summary))
+		}
+		if action.Failure != "" {
+			fmt.Fprintf(&value, "    %s\n", lipgloss.NewStyle().Foreground(danger).Render(clean(action.Failure)))
+		}
+		actionCount++
+	}
+	if actionCount == 0 {
+		value.WriteString(lipgloss.NewStyle().Foreground(muted).Render("Type a prompt below. Delivery work is routed to Objectives automatically.") + "\n")
+	}
 	if selected == nil {
-		return "NEW SESSION\n\nType /commands to start a new objective or /objective to select an existing one."
+		value.WriteString("\n" + lipgloss.NewStyle().Foreground(muted).Render("Commands: /run npm test · /preview · objective: build ...") + "\n")
+		return value.String()
 	}
 	var agent *task
 	for index := range selected.Tasks {
@@ -1688,7 +1917,7 @@ func (m model) sessionStream() string {
 			break
 		}
 	}
-	var value strings.Builder
+	value.WriteString("\n" + lipgloss.NewStyle().Foreground(accent).Bold(true).Render("ACTIVE OBJECTIVE") + "\n")
 	fmt.Fprintf(&value, "%s  %s\n%s\n", badge(selected.Status), clean(selected.Objective), lipgloss.NewStyle().Foreground(muted).Render(clean(selected.ID)))
 	if agent == nil {
 		value.WriteString("\nNo sub-agents have been created for this objective yet.\n")
@@ -1701,7 +1930,7 @@ func (m model) sessionStream() string {
 		if m.agentPatchLoading {
 			value.WriteString("Loading isolated worktree patch...\n")
 		} else if m.agentPatchKey != key {
-			value.WriteString("Press d to load this agent's patch.\n")
+			value.WriteString("Press Ctrl+D to load this agent's patch.\n")
 		} else {
 			fmt.Fprintf(&value, "%s\n", lipgloss.NewStyle().Foreground(muted).Render(clean(m.agentPatchSource+" · "+m.agentPatchStatus)))
 			value.WriteString(clean(m.agentPatch) + "\n")
@@ -2043,9 +2272,12 @@ func (m model) View() string {
 		mainArea = lipgloss.JoinHorizontal(lipgloss.Top, content, sidebar)
 	}
 
-	editorTitle := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("COMMAND")
+	editorTitle := lipgloss.NewStyle().Foreground(accent).Bold(true).Render("PROMPT")
 	editorRows := make([]string, 0, 6)
 	items := m.completions()
+	if limit := max(editorHeight-4, 0); len(items) > limit {
+		items = items[:limit]
+	}
 	for index, item := range items {
 		marker := "  "
 		style := lipgloss.NewStyle().Foreground(muted)
@@ -2064,7 +2296,7 @@ func (m model) View() string {
 		BorderForeground(accent).
 		Padding(0, 1).
 		Render(strings.Join(editorRows, "\n"))
-	status := "/help  /workspace  /objective  /agent  /diff  /copy"
+	status := "/help  /workspace  /run  /preview  /objective"
 	if m.loading {
 		status = "Refreshing Factory state...  " + status
 	}
@@ -2083,14 +2315,14 @@ func (m model) View() string {
 			help := []string{
 				lipgloss.NewStyle().Foreground(accent).Bold(true).Render("Getting started"),
 				"",
-				"1. /workspace       Choose a workspace",
-				"2. /workspace add   Import PATH or OWNER/REPO",
-				"3. /commands        Choose New objective",
-				"4. /objective       Switch objectives",
-				"5. /agent           Choose a sub-agent",
-				"6. /diff            View that agent's code",
-				"7. /copy            Copy the visible diff",
-				"8. /activity        Return to agent activity",
+				"1. /workspace · /workspace add    Choose or import a workspace",
+				"2. Type normally                   Ask about that workspace",
+				"3. objective: ...                  Force a delivery Objective",
+				"4. prompt: ...                     Force a quick answer",
+				"5. /run npm test · /preview        Run or preview locally",
+				"6. /objective                      Inspect delivery Objectives",
+				"7. /agent · /diff · /copy          Inspect and copy agent code",
+				"8. Alt+Enter                       Add a newline to the prompt",
 				"",
 				"Keyboard shortcuts still work; slash commands are primary",
 				"Esc or F1 closes help",

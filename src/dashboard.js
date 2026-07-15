@@ -73,6 +73,7 @@ export function stableStringify(value) {
 
 export async function loadLocalState(root) {
   const states = [];
+  const actions = [];
   const warnings = [];
   const activityStore = new ActivityStore(root);
   let directories = [];
@@ -81,7 +82,7 @@ export async function loadLocalState(root) {
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
-  const infrastructureDirectories = new Set(["activity", "home", "memory", "ollama", "qdrant", "qdrant-snapshots", "reports", "retrieval", "telegram"]);
+  const infrastructureDirectories = new Set(["actions", "activity", "home", "memory", "ollama", "qdrant", "qdrant-snapshots", "reports", "retrieval", "telegram", "usage"]);
   for (const entry of directories.filter((item) => item.isDirectory() && !infrastructureDirectories.has(item.name)).sort((a, b) => a.name.localeCompare(b.name))) {
     const file = path.join(root, entry.name, "state.json");
     try {
@@ -93,7 +94,16 @@ export async function loadLocalState(root) {
       if (error.code !== "ENOENT") warnings.push(`${file}: ${error.message}`);
     }
   }
-  return { states, warnings };
+  try {
+    const entries = await readdir(path.join(root, "actions"), { withFileTypes: true });
+    for (const entry of entries.filter((item) => item.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
+      const file = path.join(root, "actions", entry.name, "state.json");
+      try { actions.push(JSON.parse(await readFile(file, "utf8"))); } catch (error) { if (error.code !== "ENOENT") warnings.push(`${file}: ${error.message}`); }
+    }
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  return { states, actions, warnings };
 }
 
 function taskState(task, results) {
@@ -101,7 +111,7 @@ function taskState(task, results) {
   return task.dependsOn.every((id) => results[id]?.status === "succeeded") ? "ready" : "blocked";
 }
 
-export function aggregateDashboard({ states = [], queue = {}, cost = null, runtime = {}, hostUptimeSeconds = 0, warnings = [], now = new Date(), factoryName = process.env.FACTORY_NAME ?? "Factory AI" }) {
+export function aggregateDashboard({ states = [], actions: actionStates = [], queue = {}, cost = null, runtime = {}, hostUptimeSeconds = 0, warnings = [], now = new Date(), factoryName = process.env.FACTORY_NAME ?? "Factory AI" }) {
   let remainingActivityEvents = 1000;
   const objectives = states.map((state) => {
     const results = state.results ?? {};
@@ -163,8 +173,32 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
       modelUsage[telemetry.model] = current;
     }
   }
+  for (const state of actionStates) {
+    const telemetry = state.result?.telemetry;
+    if (!telemetry?.model) continue;
+    const current = modelUsage[telemetry.model] ?? { tasks: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, durationMs: 0 };
+    current.tasks += 1;
+    current.inputTokens += telemetry.usage?.inputTokens ?? 0;
+    current.cachedInputTokens += telemetry.usage?.cachedInputTokens ?? 0;
+    current.outputTokens += telemetry.usage?.outputTokens ?? 0;
+    current.durationMs += telemetry.durationMs ?? 0;
+    modelUsage[telemetry.model] = current;
+  }
   const startedAt = runtime.startedAt ? new Date(runtime.startedAt) : null;
   const staleAgents = objectives.flatMap((objective) => objective.tasks).filter((task) => task.stale).length;
+  const actions = actionStates.slice().sort((left, right) => String(left.createdAt ?? left.action?.createdAt).localeCompare(String(right.createdAt ?? right.action?.createdAt))).slice(-100).map((state) => ({
+    id: state.action?.id,
+    kind: state.action?.kind,
+    prompt: String(state.action?.prompt ?? "").slice(0, 1000),
+    workspace: state.action?.workspace,
+    status: state.status,
+    summary: String(state.result?.summary ?? "").slice(0, 4000),
+    checks: (state.result?.checks ?? []).slice(0, 10).map((value) => String(value).slice(0, 500)),
+    risks: (state.result?.risks ?? []).slice(0, 10).map((value) => String(value).slice(0, 500)),
+    failure: String(state.failure ?? "").slice(0, 1000),
+    createdAt: state.createdAt ?? state.action?.createdAt,
+    completedAt: state.completedAt,
+  }));
   return {
     factoryName,
     generatedAt: now.toISOString(),
@@ -178,6 +212,7 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
     summary: { objectives: summary },
     modelUsage,
     objectives,
+    actions,
     warnings,
   };
 }

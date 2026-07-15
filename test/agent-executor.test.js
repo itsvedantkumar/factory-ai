@@ -43,6 +43,37 @@ test("executes exactly one assigned task without reading orchestration state", a
   assert.equal(emitted[0].taskId, "build000");
 });
 
+test("quick prompts execute once as read-only actions and return a separate result", async () => {
+  const emitted = [];
+  const executor = new AgentExecutor({
+    workspaces: {
+      prepareAction: async () => "/workspace/action",
+    },
+    agentRunner: { invoke: async () => ({ summary: "The router maps routes.", checks: [], risks: [], approval: "not_applicable" }) },
+    sendControl: async (message) => emitted.push(message),
+  });
+  await executor.process({
+    type: "quick_action_task",
+    actionId: "action-123",
+    action: { id: "action-123", type: "quick_action", kind: "prompt", prompt: "Explain the router", workspace: "app", repository: "https://github.com/acme/app.git", baseBranch: "main", createdAt: "2026-07-15T00:00:00.000Z" },
+    task: { id: "respond", role: "scout", title: "Respond", instructions: "Explain the router", dependsOn: [], capabilities: [], complexity: "simple" },
+  });
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].type, "quick_action_result");
+  assert.equal(emitted[0].actionId, "action-123");
+  assert.equal(emitted[0].summary, "The router maps routes.");
+});
+
+test("quick prompt envelopes must match their validated action identity", async () => {
+  const executor = new AgentExecutor({ workspaces: {}, agentRunner: {}, sendControl: async () => {} });
+  await assert.rejects(() => executor.process({
+    type: "quick_action_task",
+    actionId: "action-safe",
+    action: { id: "../escape", type: "quick_action", kind: "prompt", prompt: "Explain", workspace: "app", repository: "https://github.com/acme/app.git", baseBranch: "main", createdAt: "2026-07-15T00:00:00.000Z" },
+    task: { id: "respond", role: "scout", title: "Respond", instructions: "Explain", dependsOn: [], capabilities: [], complexity: "simple" },
+  }), /invalid|Action ID|match/i);
+});
+
 test("injects trusted scanner evidence into security tasks", async () => {
   let prompt;
   const executor = new AgentExecutor({

@@ -6,6 +6,8 @@ import { ControlPlane } from "./control-plane.js";
 import { loadRegistry } from "./registry.js";
 import { log } from "./log.js";
 import { ProjectMemory } from "./project-memory.js";
+import path from "node:path";
+import { QuickActionControl } from "./quick-action-control.js";
 
 process.title = "factory-ai-control";
 const config = loadConfig();
@@ -18,12 +20,19 @@ const control = new ControlPlane({
   sendTask: (message) => sendMessage(bus.sender, message, `${message.objectiveId}:${message.task.id}:${message.approvalGranted ? "approved" : "v1"}`, message.objectiveId),
   sendRelease: (message) => sendMessage(releaseSender, message, `${message.objectiveId}:publish:v1`, message.objectiveId),
 });
+const actions = new QuickActionControl({
+  store: new StateStore(path.join(config.stateDir, "actions")),
+  sendTask: (message) => sendMessage(bus.sender, message, `${message.actionId}:${message.task.id}:v1`, message.actionId),
+});
 
 let shuttingDown = false;
 const subscription = bus.receiver.subscribe({
   processMessage: async (message) => {
     try {
       if (message.body?.type === "objective") await control.acceptObjective(message.body);
+      else if (message.body?.type === "quick_action") await actions.acceptAction(message.body);
+      else if (message.body?.type === "quick_action_result") await actions.acceptResult(message.body);
+      else if (message.body?.type === "quick_action_failure") await actions.acceptFailure(message.body);
       else if (message.body?.type === "planning_result") await control.acceptPlanningResult(message.body);
       else if (message.body?.type === "result") await control.acceptTaskResult(message.body);
       else if (message.body?.type === "release_result") await control.acceptReleaseResult(message.body);
