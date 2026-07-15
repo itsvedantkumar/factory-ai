@@ -1,4 +1,4 @@
-const ALLOWED_FIELDS = new Set(["timestamp", "level", "event", "objectiveId", "taskId", "type", "messageId", "source", "deliveryCount", "error", "signal", "queue", "concurrency"]);
+const ALLOWED_FIELDS = new Set(["timestamp", "level", "factory", "service", "event", "objectiveId", "taskId", "type", "messageId", "source", "deliveryCount", "error", "signal", "queue", "concurrency"]);
 
 function redact(value) {
   return String(value)

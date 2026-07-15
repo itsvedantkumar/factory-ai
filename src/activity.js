@@ -114,6 +114,7 @@ export class ActivityStore {
           if (event.type !== "telemetry.recorded") latest = event;
           if (event.type === "model.retry") retryCount += 1;
           if (event.error || event.type?.endsWith(".failed")) lastError = event.error ?? event.status;
+          if (event.type === "agent.completed" || event.type === "container.completed") lastError = undefined;
         } catch {}
       }
       if (latest) result[file.slice(0, -6)] = { ...latest, retryCount, lastError };

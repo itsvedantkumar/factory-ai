@@ -13,6 +13,8 @@ export function log(level, event, fields = {}) {
   process.stdout.write(`${JSON.stringify({
     timestamp: new Date().toISOString(),
     level,
+    factory: process.env.FACTORY_NAME ?? "Factory AI",
+    service: process.title || "factory-ai",
     event,
     ...sanitize(fields),
   })}\n`);

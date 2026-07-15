@@ -11,11 +11,12 @@ test("appends and reloads latest task activity", async () => {
   await store.append("objective-1", "build", { type: "model.request.started", step: 1 });
   await store.append("objective-1", "build", { type: "model.retry", attempt: 1, error: "rate limited" });
   await store.append("objective-1", "build", { type: "tool.completed", tool: "read_file" });
+  await store.append("objective-1", "build", { type: "agent.completed", role: "builder" });
+  await store.append("objective-1", "build", { type: "container.completed", role: "builder" });
   const latest = await store.latestObjective("objective-1");
-  assert.equal(latest.build.type, "tool.completed");
-  assert.equal(latest.build.tool, "read_file");
+  assert.equal(latest.build.type, "container.completed");
   assert.equal(latest.build.retryCount, 1);
-  assert.equal(latest.build.lastError, "rate limited");
+  assert.equal(latest.build.lastError, undefined);
 });
 
 test("marks old running activity stale but not terminal tasks", () => {

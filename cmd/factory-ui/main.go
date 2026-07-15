@@ -92,6 +92,7 @@ type usage struct {
 }
 
 type dashboard struct {
+	FactoryName string                           `json:"factoryName"`
 	GeneratedAt string                           `json:"generatedAt"`
 	Queue       struct{ Active, DeadLetter int } `json:"queue"`
 	Health      struct {
@@ -1402,6 +1403,9 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		if msg.err == nil {
 			m.dashboard, m.logs, m.workspaces, m.workspaceErr, m.syncScheduler = msg.dashboard, msg.logs, msg.workspaces, msg.workspaceErr, msg.syncScheduler
+			if msg.dashboard.FactoryName != "" {
+				m.factoryName = msg.dashboard.FactoryName
+			}
 			if len(m.workspaces) == 0 {
 				m.selectedWorkspace = ""
 			} else if m.selected() == nil {
@@ -1638,7 +1642,7 @@ func (m model) sessionStream() string {
 		}
 		value.WriteString("\n")
 	}
-	if agent.LastError != "" {
+	if agent.LastError != "" && (agent.State == "failed" || agent.State == "retrying" || agent.Stale) {
 		fmt.Fprintf(&value, "%s %s\n", lipgloss.NewStyle().Foreground(danger).Bold(true).Render("LAST ERROR"), clean(agent.LastError))
 	}
 	return value.String()
@@ -1768,10 +1772,10 @@ func (m model) agents() string {
 	fmt.Fprintf(&value, "\n%s\n\n", lipgloss.NewStyle().Bold(true).Foreground(accent).Render("SELECTED AGENT"))
 	fmt.Fprintf(&value, "%s\n\nObjective  %s\nTask ID    %s\nRole       %s\nModel      %s\nState      %s\nPhase      %s\nActivity   %s\nTool       %s\nUpdated    %s\nRetries    %d\n",
 		clean(agent.Title), trim(record.objective.Objective, 90), clean(agent.ID), clean(agent.Role), clean(agent.Model), badge(state), clean(phase), clean(activityType), clean(tool), clean(occurredAt), agent.Retries)
-	if agent.LastError != "" {
+	if agent.LastError != "" && (agent.State == "failed" || agent.State == "retrying" || agent.Stale) {
 		fmt.Fprintf(&value, "Last error %s\n", lipgloss.NewStyle().Foreground(danger).Render(clean(agent.LastError)))
 	}
-	if activityError != "" && activityError != agent.LastError {
+	if activityError != "" && activityError != agent.LastError && (agent.State == "failed" || agent.State == "retrying" || agent.Stale) {
 		fmt.Fprintf(&value, "Activity error %s\n", lipgloss.NewStyle().Foreground(danger).Render(clean(activityError)))
 	}
 	return value.String()

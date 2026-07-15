@@ -4,6 +4,14 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.6.1] - 2026-07-15
+
+### Fixed
+
+- Recovered tool/model errors are cleared when an agent and container complete successfully, so succeeded agents no longer appear failed after workspace switching.
+- Genuine failed/retrying/stale tasks use durable result errors, while historical tool failures remain available only in the activity timeline.
+- Structured operator logs now include configured `factory` and stable `service` fields, and text dashboards use the configured Factory name.
+
 ## [2.6.0] - 2026-07-15
 
 ### Added

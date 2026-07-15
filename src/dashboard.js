@@ -101,7 +101,7 @@ function taskState(task, results) {
   return task.dependsOn.every((id) => results[id]?.status === "succeeded") ? "ready" : "blocked";
 }
 
-export function aggregateDashboard({ states = [], queue = {}, cost = null, runtime = {}, hostUptimeSeconds = 0, warnings = [], now = new Date() }) {
+export function aggregateDashboard({ states = [], queue = {}, cost = null, runtime = {}, hostUptimeSeconds = 0, warnings = [], now = new Date(), factoryName = process.env.FACTORY_NAME ?? "Factory AI" }) {
   let remainingActivityEvents = 1000;
   const objectives = states.map((state) => {
     const results = state.results ?? {};
@@ -114,6 +114,7 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
       const stateValue = resultState === "queued" && liveActivity ? (liveActivity.type?.endsWith(".failed") ? "retrying" : "running") : resultState;
       const eventLimit = Math.min(50, remainingActivityEvents);
       const retainedEvents = eventLimit > 0 ? (state.activityTimeline?.[task.id] ?? []).slice(-eventLimit) : [];
+      const stale = !objectiveTerminal && isStaleActivity(activity, stateValue, now, liveActivity ? 120 : 600);
       remainingActivityEvents = Math.max(0, remainingActivityEvents - retainedEvents.length);
       return ({
       id: task.id,
@@ -127,10 +128,10 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
         ? (new Date(results[task.id]?.completedAt ?? now).getTime() - new Date(results[task.id].startedAt).getTime()) / 1000
         : 0,
       activity,
-      stale: !objectiveTerminal && isStaleActivity(activity, stateValue, now, liveActivity ? 120 : 600),
+      stale,
       activityAgeSeconds: activity?.occurredAt ? Math.max(0, (now.getTime() - new Date(activity.occurredAt).getTime()) / 1000) : null,
       retries: activity?.retryCount ?? 0,
-      lastError: activity?.lastError,
+      lastError: stale || ["failed", "retrying"].includes(stateValue) ? results[task.id]?.error ?? activity?.lastError : undefined,
       events: retainedEvents,
     });
     });
@@ -165,6 +166,7 @@ export function aggregateDashboard({ states = [], queue = {}, cost = null, runti
   const startedAt = runtime.startedAt ? new Date(runtime.startedAt) : null;
   const staleAgents = objectives.flatMap((objective) => objective.tasks).filter((task) => task.stale).length;
   return {
+    factoryName,
     generatedAt: now.toISOString(),
     worker: {
       status: runtime.status ?? "unknown",
@@ -187,7 +189,7 @@ function clip(value, width) {
 
 export function renderDashboard(dashboard, { width = 100 } = {}) {
   const lines = [
-    "╔═ FACTORY AI ═╗",
+    `╔═ ${(dashboard.factoryName ?? "Factory AI").toUpperCase()} ═╗`,
     `Worker ${dashboard.worker.status} · uptime ${humanDuration(dashboard.worker.uptimeSeconds)} · queue ${dashboard.queue.active} · DLQ ${dashboard.queue.deadLetter}`,
     `Objectives ${Object.entries(dashboard.summary.objectives).map(([state, count]) => `${state}:${count}`).join(" ") || "none"}`,
   ];
