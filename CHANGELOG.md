@@ -4,6 +4,12 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.7.2] - 2026-07-15
+
+### Fixed
+
+- Provisioned the durable VM usage directory and granted the snapshot service its narrowly scoped write permission so `factory.usage.v1` publication works on deployed hosts.
+
 ## [2.7.1] - 2026-07-15
 
 ### Fixed

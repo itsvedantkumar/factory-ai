@@ -14,5 +14,6 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadWritePaths=/opt/agent-factory/state/usage
 UMask=0027
 SyslogIdentifier=factory-ai-snapshot
