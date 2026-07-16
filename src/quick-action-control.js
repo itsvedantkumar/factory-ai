@@ -1,15 +1,13 @@
 import { parseQuickAction, parseQuickActionFailure, parseQuickActionResult } from "./validation.js";
+import { redactSecrets } from "./redaction.js";
 
 const terminal = new Set(["succeeded", "failed", "cancelled"]);
 
-function redact(value) {
-  return String(value ?? "").replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]").replace(/-----BEGIN [^-]+ PRIVATE KEY-----[\s\S]*?-----END [^-]+ PRIVATE KEY-----/g, "[REDACTED PRIVATE KEY]");
-}
-
 export class QuickActionControl {
-  constructor({ store, sendTask }) {
+  constructor({ store, sendTask, publish = async () => {} }) {
     this.store = store;
     this.sendTask = sendTask;
+    this.publish = publish;
   }
 
   async acceptAction(value) {
@@ -29,17 +27,20 @@ export class QuickActionControl {
       action,
       task: { id: "respond", role: "scout", title: "Respond to workspace prompt", instructions: action.prompt, dependsOn: [], capabilities: [], complexity: "simple" },
     });
-    await this.store.update(action.id, (current) => ({ ...current, dispatchedAt: new Date().toISOString() }));
+    state = await this.store.update(action.id, (current) => ({ ...current, dispatchedAt: new Date().toISOString() }));
+    await this.publish(state);
   }
 
   async acceptResult(value) {
     const result = parseQuickActionResult(value);
-    const safe = { ...result, summary: redact(result.summary), checks: result.checks.map(redact), risks: result.risks.map(redact) };
-    await this.store.update(result.actionId, (state) => terminal.has(state.status) ? state : ({ ...state, status: "succeeded", result: safe, completedAt: new Date().toISOString() }));
+    const safe = { ...result, summary: redactSecrets(result.summary), checks: result.checks.map(redactSecrets), risks: result.risks.map(redactSecrets) };
+    const state = await this.store.update(result.actionId, (current) => terminal.has(current.status) ? current : ({ ...current, status: "succeeded", result: safe, completedAt: new Date().toISOString() }));
+    await this.publish(state);
   }
 
   async acceptFailure(value) {
     const failure = parseQuickActionFailure(value);
-    await this.store.update(failure.actionId, (state) => terminal.has(state.status) ? state : ({ ...state, status: "failed", failure: failure.error, completedAt: new Date().toISOString() }));
+    const state = await this.store.update(failure.actionId, (current) => terminal.has(current.status) ? current : ({ ...current, status: "failed", failure: redactSecrets(failure.error), completedAt: new Date().toISOString() }));
+    await this.publish(state);
   }
 }

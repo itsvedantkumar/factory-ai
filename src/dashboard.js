@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { modelForTask } from "./routing.js";
 import { DefaultAzureCredential } from "@azure/identity";
+import { redactSecrets } from "./redaction.js";
 import { ServiceBusAdministrationClient } from "@azure/service-bus";
 import { loadConfig } from "./config.js";
 import { ActivityStore, isStaleActivity } from "./activity.js";
@@ -106,6 +107,22 @@ export async function loadLocalState(root) {
   return { states, actions, warnings };
 }
 
+export function projectQuickActions(actionStates = []) {
+  return actionStates.slice().sort((left, right) => String(left.createdAt ?? left.action?.createdAt).localeCompare(String(right.createdAt ?? right.action?.createdAt))).slice(-100).map((state) => ({
+    id: state.action?.id,
+    kind: state.action?.kind,
+    prompt: redactSecrets(state.action?.prompt).slice(0, 1000),
+    workspace: state.action?.workspace,
+    status: state.status,
+    summary: redactSecrets(state.result?.summary).slice(0, 4000),
+    checks: (state.result?.checks ?? []).slice(0, 10).map((value) => redactSecrets(value).slice(0, 500)),
+    risks: (state.result?.risks ?? []).slice(0, 10).map((value) => redactSecrets(value).slice(0, 500)),
+    failure: redactSecrets(state.failure).slice(0, 1000),
+    createdAt: state.createdAt ?? state.action?.createdAt,
+    completedAt: state.completedAt,
+  }));
+}
+
 function taskState(task, results) {
   if (results[task.id]?.status) return results[task.id].status;
   return task.dependsOn.every((id) => results[id]?.status === "succeeded") ? "ready" : "blocked";
@@ -186,19 +203,7 @@ export function aggregateDashboard({ states = [], actions: actionStates = [], qu
   }
   const startedAt = runtime.startedAt ? new Date(runtime.startedAt) : null;
   const staleAgents = objectives.flatMap((objective) => objective.tasks).filter((task) => task.stale).length;
-  const actions = actionStates.slice().sort((left, right) => String(left.createdAt ?? left.action?.createdAt).localeCompare(String(right.createdAt ?? right.action?.createdAt))).slice(-100).map((state) => ({
-    id: state.action?.id,
-    kind: state.action?.kind,
-    prompt: String(state.action?.prompt ?? "").slice(0, 1000),
-    workspace: state.action?.workspace,
-    status: state.status,
-    summary: String(state.result?.summary ?? "").slice(0, 4000),
-    checks: (state.result?.checks ?? []).slice(0, 10).map((value) => String(value).slice(0, 500)),
-    risks: (state.result?.risks ?? []).slice(0, 10).map((value) => String(value).slice(0, 500)),
-    failure: String(state.failure ?? "").slice(0, 1000),
-    createdAt: state.createdAt ?? state.action?.createdAt,
-    completedAt: state.completedAt,
-  }));
+  const actions = projectQuickActions(actionStates);
   return {
     factoryName,
     generatedAt: now.toISOString(),

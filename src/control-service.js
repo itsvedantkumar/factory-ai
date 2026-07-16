@@ -8,6 +8,8 @@ import { log } from "./log.js";
 import { ProjectMemory } from "./project-memory.js";
 import path from "node:path";
 import { QuickActionControl } from "./quick-action-control.js";
+import { loadLocalState } from "./dashboard.js";
+import { createQuickActionFeedPublisher } from "./quick-action-feed.js";
 
 process.title = "factory-ai-control";
 const config = loadConfig();
@@ -20,10 +22,20 @@ const control = new ControlPlane({
   sendTask: (message) => sendMessage(bus.sender, message, `${message.objectiveId}:${message.task.id}:${message.approvalGranted ? "approved" : "v1"}`, message.objectiveId),
   sendRelease: (message) => sendMessage(releaseSender, message, `${message.objectiveId}:publish:v1`, message.objectiveId),
 });
+const publishActions = createQuickActionFeedPublisher(config, {
+  loadStates: async () => (await loadLocalState(config.stateDir)).actions,
+});
+const requestActionFeed = () => {
+  void publishActions().catch((error) => log("warn", "quick_action_feed_failed", { error: error.message }));
+};
 const actions = new QuickActionControl({
   store: new StateStore(path.join(config.stateDir, "actions")),
   sendTask: (message) => sendMessage(bus.sender, message, `${message.actionId}:${message.task.id}:v1`, message.actionId),
+  publish: async () => requestActionFeed(),
 });
+const actionFeedTimer = setInterval(requestActionFeed, 60_000);
+actionFeedTimer.unref();
+requestActionFeed();
 
 let shuttingDown = false;
 const subscription = bus.receiver.subscribe({
@@ -57,6 +69,7 @@ const subscription = bus.receiver.subscribe({
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
+  clearInterval(actionFeedTimer);
   log("info", "control_shutdown", { signal });
   await subscription.close();
   await bus.receiver.close();

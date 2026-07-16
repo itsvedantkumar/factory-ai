@@ -73,6 +73,82 @@ func TestPlainTextIsAPromptAndFactoryCommandsRequireExplicitPrefix(t *testing.T)
 	}
 }
 
+func TestPromptCommandResultStartsTargetedActionPolling(t *testing.T) {
+	id, ok := promptActionID(commandResultMsg{
+		command: "factory prompt app Audit the repo",
+		output:  `{"kind":"action","id":"action-123","status":"queued"}`,
+	})
+	if !ok || id != "action-123" {
+		t.Fatalf("prompt result did not identify its action: %q %v", id, ok)
+	}
+	for _, result := range []commandResultMsg{
+		{command: "factory prompt app Build it", output: `{"kind":"objective","id":"objective-123"}`},
+		{command: "factory prompt app Audit", output: "bad", err: fmt.Errorf("failed")},
+		{command: "factory status", output: `{"kind":"action","id":"action-456"}`},
+	} {
+		if id, ok := promptActionID(result); ok || id != "" {
+			t.Fatalf("non-action command started polling: %#v", result)
+		}
+	}
+}
+
+func TestActionPollingStopsAtTerminalState(t *testing.T) {
+	for _, status := range []string{"succeeded", "failed", "cancelled"} {
+		if shouldPollAction(status) {
+			t.Fatalf("terminal status %q continued polling", status)
+		}
+	}
+	for _, status := range []string{"", "queued", "running"} {
+		if !shouldPollAction(status) {
+			t.Fatalf("nonterminal status %q stopped polling", status)
+		}
+	}
+}
+
+func TestOlderActionFeedCannotOverwriteNewerDashboard(t *testing.T) {
+	t.Setenv("FACTORY_UI_CACHE_FILE", filepath.Join(t.TempDir(), "snapshot.json"))
+	current := newModel(nil, "Factory AI", "Test")
+	current.dashboard.Actions = []quickAction{{ID: "action-123", Status: "queued"}}
+	updated, _ := current.Update(snapshotMsg{requestID: current.refreshRequest, dashboard: dashboard{
+		GeneratedAt: "2026-01-01T00:01:00Z",
+		Actions:     []quickAction{{ID: "action-123", Status: "succeeded"}},
+	}})
+	current = updated.(model)
+	updated, _ = current.Update(actionFeedMsg{requestID: current.actionFeedRequest, feed: actionFeed{
+		GeneratedAt: "2026-01-01T00:00:00Z",
+		Actions:     []quickAction{{ID: "action-123", Status: "queued"}},
+	}})
+	current = updated.(model)
+	if current.dashboard.Actions[0].Status != "succeeded" {
+		t.Fatal("older action feed regressed newer dashboard state")
+	}
+}
+
+func TestOldActionPollCannotCancelNewPrompt(t *testing.T) {
+	current := newModel(nil, "Factory AI", "Test")
+	current.pendingActionID = "action-new"
+	current.actionPollStarted = time.Now()
+	updated, _ := current.Update(actionPollMsg{actionID: "action-old"})
+	current = updated.(model)
+	if current.pendingActionID != "action-new" {
+		t.Fatal("old poll cancelled the newer action")
+	}
+}
+
+func TestActionMergeNeverRegressesTerminalState(t *testing.T) {
+	current := []quickAction{{ID: "action-123", Status: "succeeded", Summary: "Complete", CompletedAt: "2026-01-01T00:01:00Z"}}
+	stale := []quickAction{{ID: "action-123", Status: "queued"}}
+	merged := mergeQuickActions(current, stale)
+	if len(merged) != 1 || merged[0].Status != "succeeded" || merged[0].Summary != "Complete" {
+		t.Fatalf("terminal action regressed: %#v", merged)
+	}
+	newer := []quickAction{{ID: "action-456", Status: "queued", CreatedAt: "2026-01-01T00:02:00Z"}}
+	merged = mergeQuickActions(merged, newer)
+	if len(merged) != 2 || merged[1].ID != "action-456" {
+		t.Fatalf("new action was not merged: %#v", merged)
+	}
+}
+
 func TestWorkspaceCommandsRejectShellsAndUnsafePackageOperations(t *testing.T) {
 	if err := validateWorkspaceCommand([]string{"npm", "test"}); err != nil {
 		t.Fatal(err)

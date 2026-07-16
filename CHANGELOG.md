@@ -4,6 +4,17 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.8.1] - 2026-07-16
+
+### Fixed
+
+- Published quick-action transitions immediately and added targeted TUI polling so queued prompts and completed responses appear without waiting for the minute-level dashboard cycle.
+- Prevented stale action feeds and older prompt timers from regressing or cancelling newer action state.
+
+### Security
+
+- Redacted common provider tokens, bearer credentials, keyed secrets, and private keys from published quick-action prompts and results.
+
 ## [2.8.0] - 2026-07-15
 
 ### Added

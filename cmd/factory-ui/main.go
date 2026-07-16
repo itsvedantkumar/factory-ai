@@ -148,6 +148,18 @@ type snapshotMsg struct {
 	err           error
 	requestID     int
 }
+type actionFeed struct {
+	GeneratedAt string        `json:"generatedAt"`
+	Actions     []quickAction `json:"actions"`
+}
+type actionFeedMsg struct {
+	feed      actionFeed
+	err       error
+	requestID int
+}
+type actionPollMsg struct {
+	actionID string
+}
 type cachedSnapshot struct {
 	StorageAccount string          `json:"storageAccount"`
 	Dashboard      dashboard       `json:"dashboard"`
@@ -216,6 +228,9 @@ type model struct {
 	agentDiffRequest    int
 	notice              string
 	refreshRequest      int
+	actionFeedRequest   int
+	pendingActionID     string
+	actionPollStarted   time.Time
 	storageAccount      string
 }
 
@@ -547,6 +562,62 @@ func executeFactoryCommand(args []string) tea.Cmd {
 		output, err := exec.Command("factory", args...).CombinedOutput()
 		return commandResultMsg{command: command, output: string(output), err: err}
 	}
+}
+
+func promptActionID(result commandResultMsg) (string, bool) {
+	if result.err != nil || !strings.HasPrefix(result.command, "factory prompt ") {
+		return "", false
+	}
+	var value struct {
+		Kind string `json:"kind"`
+		ID   string `json:"id"`
+	}
+	if json.Unmarshal([]byte(strings.TrimSpace(result.output)), &value) != nil || value.Kind != "action" || !strings.HasPrefix(value.ID, "action-") {
+		return "", false
+	}
+	return value.ID, true
+}
+
+func shouldPollAction(status string) bool {
+	return status != "succeeded" && status != "failed" && status != "cancelled"
+}
+
+func mergeQuickActions(current, incoming []quickAction) []quickAction {
+	byID := make(map[string]quickAction, len(current)+len(incoming))
+	for _, action := range current {
+		byID[action.ID] = action
+	}
+	terminal := func(status string) bool { return !shouldPollAction(status) }
+	for _, action := range incoming {
+		previous, exists := byID[action.ID]
+		if !exists || terminal(action.Status) && !terminal(previous.Status) || terminal(action.Status) == terminal(previous.Status) && (!terminal(action.Status) || action.CompletedAt > previous.CompletedAt) {
+			byID[action.ID] = action
+		}
+	}
+	merged := make([]quickAction, 0, len(byID))
+	for _, action := range byID {
+		merged = append(merged, action)
+	}
+	sort.SliceStable(merged, func(left, right int) bool { return merged[left].CreatedAt < merged[right].CreatedAt })
+	if len(merged) > 100 {
+		merged = merged[len(merged)-100:]
+	}
+	return merged
+}
+
+func fetchActionFeedCmd(client *azblob.Client, requestID int) tea.Cmd {
+	return func() tea.Msg {
+		data, err := download(client, "quick-actions.json")
+		var feed actionFeed
+		if err == nil {
+			err = json.Unmarshal(data, &feed)
+		}
+		return actionFeedMsg{feed: feed, err: err, requestID: requestID}
+	}
+}
+
+func pollActionCmd(actionID string) tea.Cmd {
+	return tea.Tick(2*time.Second, func(time.Time) tea.Msg { return actionPollMsg{actionID: actionID} })
 }
 
 func interactiveSandboxProcess(item workspace, args []string, preview bool) tea.Cmd {
@@ -1692,6 +1763,7 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		if msg.err == nil {
+			msg.dashboard.Actions = mergeQuickActions(m.dashboard.Actions, msg.dashboard.Actions)
 			m.dashboard, m.logs, m.workspaces, m.workspaceErr, m.syncScheduler = msg.dashboard, msg.logs, msg.workspaces, msg.workspaceErr, msg.syncScheduler
 			if msg.dashboard.FactoryName != "" {
 				m.factoryName = msg.dashboard.FactoryName
@@ -1738,7 +1810,48 @@ func (m model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncViewport()
 		m.content.GotoBottom()
 		m.refreshRequest++
-		return m, fetchCmd(m.client, m.refreshRequest)
+		commands := []tea.Cmd{fetchCmd(m.client, m.refreshRequest)}
+		if actionID, ok := promptActionID(msg); ok {
+			m.pendingActionID = actionID
+			m.actionPollStarted = time.Now()
+			m.actionFeedRequest++
+			commands = append(commands, fetchActionFeedCmd(m.client, m.actionFeedRequest))
+		}
+		return m, tea.Batch(commands...)
+	case actionFeedMsg:
+		if msg.requestID != m.actionFeedRequest {
+			return m, nil
+		}
+		status := ""
+		if msg.err == nil {
+			m.dashboard.Actions = mergeQuickActions(m.dashboard.Actions, msg.feed.Actions)
+			for _, action := range m.dashboard.Actions {
+				if action.ID == m.pendingActionID {
+					status = action.Status
+					break
+				}
+			}
+			m.syncViewport()
+			m.content.GotoBottom()
+		}
+		if m.pendingActionID == "" {
+			return m, nil
+		}
+		if !shouldPollAction(status) || time.Since(m.actionPollStarted) >= 2*time.Minute {
+			m.pendingActionID = ""
+			return m, nil
+		}
+		return m, pollActionCmd(m.pendingActionID)
+	case actionPollMsg:
+		if msg.actionID == "" || msg.actionID != m.pendingActionID {
+			return m, nil
+		}
+		if time.Since(m.actionPollStarted) >= 2*time.Minute {
+			m.pendingActionID = ""
+			return m, nil
+		}
+		m.actionFeedRequest++
+		return m, fetchActionFeedCmd(m.client, m.actionFeedRequest)
 	case agentDiffMsg:
 		objective := m.selectedObjective()
 		if objective == nil || msg.objectiveID != objective.ID || msg.taskID != m.selectedAgentID || msg.requestID != m.agentDiffRequest {

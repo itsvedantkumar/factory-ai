@@ -37,3 +37,31 @@ test("quick action failures reject traversal identifiers", async () => {
   const control = new QuickActionControl({ store: new MemoryStore(), sendTask: async () => {} });
   await assert.rejects(() => control.acceptFailure({ type: "quick_action_failure", actionId: "../objective", error: "bad" }), /invalid|Action ID|String/i);
 });
+
+test("quick action transitions publish durable queued and terminal states", async () => {
+  const published = [];
+  const store = new MemoryStore();
+  const control = new QuickActionControl({
+    store,
+    sendTask: async () => {},
+    publish: async (state) => published.push(structuredClone(state)),
+  });
+
+  await control.acceptAction(action);
+  await control.acceptResult({ type: "quick_action_result", actionId: action.id, status: "succeeded", summary: "Done", checks: [], risks: [], approval: "not_applicable" });
+
+  assert.equal(published.length, 2);
+  assert.equal(published[0].status, "queued");
+  assert.ok(published[0].dispatchedAt);
+  assert.equal(published[1].status, "succeeded");
+  assert.equal(published[1].result.summary, "Done");
+});
+
+test("quick action failure is redacted before publication", async () => {
+  const published = [];
+  const store = new MemoryStore();
+  const control = new QuickActionControl({ store, sendTask: async () => {}, publish: async (state) => published.push(state) });
+  await control.acceptAction(action);
+  await control.acceptFailure({ type: "quick_action_failure", actionId: action.id, error: "token=super-secret request failed" });
+  assert.equal(published.at(-1).failure, "token=[REDACTED] request failed");
+});

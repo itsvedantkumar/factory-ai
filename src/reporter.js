@@ -50,11 +50,12 @@ export async function uploadDashboardSnapshot(config, dashboard, {
 export async function uploadOperatorBlob(config, name, value, contentType = "text/plain; charset=utf-8", {
   credential = new DefaultAzureCredential(),
   createClient = (url, auth) => new BlobServiceClient(url, auth),
+  abortSignal,
 } = {}) {
   if (!config.storageAccount) return false;
   const service = createClient(`https://${config.storageAccount}.blob.core.windows.net`, credential);
   const blob = service.getContainerClient("operator").getBlockBlobClient(name);
-  await blob.uploadData(Buffer.from(value), { blobHTTPHeaders: { blobContentType: contentType, blobCacheControl: "no-store" } });
+  await blob.uploadData(Buffer.from(value), { abortSignal, blobHTTPHeaders: { blobContentType: contentType, blobCacheControl: "no-store" } });
   return true;
 }
 
