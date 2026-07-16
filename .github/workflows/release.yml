@@ -35,9 +35,12 @@ jobs:
           done
           cd dist
           sha256sum factory-ui-* > checksums.txt
-      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+      - id: attest
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
           subject-path: dist/factory-ui-*
+      - name: Stage offline attestation bundle
+        run: cp "${{ steps.attest.outputs.bundle-path }}" dist/attestation.json
       - name: Attach binaries to release
         run: gh release upload "${{ github.event.release.tag_name }}" dist/*
         env:

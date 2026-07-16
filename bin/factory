@@ -324,19 +324,19 @@ case "$command" in
     if [[ ! -x $binary ]]; then
       mkdir -p "$cache"
       base="https://github.com/itsvedantkumar/factory-ai/releases/download/v$version"
-      if curl -fsSL "$base/factory-ui-$os-$arch" -o "$binary.tmp" && curl -fsSL "$base/checksums.txt" -o "$cache/checksums.txt"; then
+      if curl -fsSL "$base/factory-ui-$os-$arch" -o "$binary.tmp" && curl -fsSL "$base/checksums.txt" -o "$cache/checksums.txt" && curl -fsSL "$base/attestation.json" -o "$cache/attestation.json"; then
         expected=""
         while read -r checksum asset; do [[ $asset == "factory-ui-$os-$arch" ]] && expected=$checksum; done < "$cache/checksums.txt"
         actual=""
         if command -v shasum >/dev/null; then actual=$(shasum -a 256 "$binary.tmp"); actual=${actual%% *};
         elif command -v sha256sum >/dev/null; then actual=$(sha256sum "$binary.tmp"); actual=${actual%% *}; fi
-        if [[ -n $expected && $actual == "$expected" ]] && gh attestation verify "$binary.tmp" --repo itsvedantkumar/factory-ai >/dev/null 2>&1; then mv "$binary.tmp" "$binary"; chmod 0755 "$binary"; else rm -f "$binary.tmp"; fi
+        if [[ -n $expected && $actual == "$expected" ]] && gh attestation verify "$binary.tmp" --repo itsvedantkumar/factory-ai --bundle "$cache/attestation.json" >/dev/null 2>&1; then mv "$binary.tmp" "$binary"; chmod 0755 "$binary"; else rm -f "$binary.tmp"; fi
       fi
     fi
     if [[ -x $binary ]]; then
       FACTORY_STORAGE_ACCOUNT="$STORAGE" FACTORY_NAME="$FACTORY_NAME" FACTORY_PURPOSE="$FACTORY_PURPOSE" exec "$binary"
     fi
-    printf 'Verified Factory TUI binary is unavailable for %s/%s. Check GitHub release assets and `gh auth status`.\n' "$os" "$arch" >&2
+    printf 'Verified Factory TUI binary is unavailable for %s/%s. Check the GitHub release assets and network connection.\n' "$os" "$arch" >&2
     exit 1
     ;;
   setup)

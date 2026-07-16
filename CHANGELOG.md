@@ -4,6 +4,13 @@ All notable changes follow semantic versioning and the Keep a Changelog structur
 
 ## [Unreleased]
 
+## [2.8.2] - 2026-07-17
+
+### Fixed
+
+- Shipped the signed build-provenance bundle with each release so TUI binaries can be verified without a live GitHub CLI login.
+- Replaced the misleading missing-binary error when provenance lookup fails.
+
 ## [2.8.1] - 2026-07-16
 
 ### Fixed
