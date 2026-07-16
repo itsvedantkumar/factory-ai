@@ -1,8 +1,8 @@
 name: release
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
 
 permissions:
   contents: read
@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   binaries:
-    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
@@ -41,8 +40,12 @@ jobs:
           subject-path: dist/factory-ui-*
       - name: Stage offline attestation bundle
         run: cp "${{ steps.attest.outputs.bundle-path }}" dist/attestation.json
+      - name: Create release
+        run: gh release create "${{ github.ref_name }}" --target "${{ github.sha }}" --title "${{ github.ref_name }}" --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Attach binaries to release
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/*
+        run: gh release upload "${{ github.ref_name }}" dist/*
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -51,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.ref_name }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -62,7 +65,7 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ripgrep
       - run: npm ci
       - name: Verify tag matches package
-        run: test "${{ github.event.release.tag_name }}" = "v$(node -p 'require("./package.json").version')"
+        run: test "${{ github.ref_name }}" = "v$(node -p 'require("./package.json").version')"
       - run: npm run check
       - run: npm run lint
       - run: npm test

@@ -9,6 +9,8 @@ test("release ships an offline attestation bundle used by the launcher", async (
   assert.match(workflow, /id:\s*attest/);
   assert.match(workflow, /steps\.attest\.outputs\.bundle-path/);
   assert.match(workflow, /dist\/attestation\.json/);
+  assert.match(workflow, /tags:\s*\["v\*"\]/);
+  assert.match(workflow, /gh release create/);
   assert.match(launcher, /attestation\.json/);
   assert.match(launcher, /--bundle\s+"\$cache\/attestation\.json"/);
 });
